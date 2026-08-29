@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PokéBot Control Center</title>
+  <meta name="description" content="External dashboard to control the Pokemon Center Tampermonkey bot — manage Chrome profiles, product links, bot settings and live logs." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+<!-- ── Animated background ─────────────────────────────────────────── -->
+<div class="bg-orbs">
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+</div>
+
+<!-- ── App Shell ───────────────────────────────────────────────────── -->
+<div class="app">
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-brand">
+      <span class="brand-icon">⚡</span>
+      <div>
+        <h1 class="brand-title">PokéBot Control Center</h1>
+        <p class="brand-sub">Pokemon Center Automation Dashboard · port 7337</p>
+      </div>
+    </div>
+    <div class="header-status">
+      <div id="statusBadge" class="status-badge status-stopped">⏹ Stopped</div>
+      <div id="chromeStatus" class="chrome-badge">🔍 Checking Chrome…</div>
+    </div>
+  </header>
+
+  <!-- Tabs -->
+  <nav class="tabs" role="tablist">
+    <button class="tab tab-active" data-tab="quickstart" role="tab" id="tab-quickstart">🚀 Quick Start</button>
+    <button class="tab"            data-tab="products"   role="tab" id="tab-products">🛍️ Products</button>
+    <button class="tab"            data-tab="profiles"   role="tab" id="tab-profiles">🖥️ Profiles</button>
+    <button class="tab"            data-tab="settings"   role="tab" id="tab-settings">⚙️ Settings</button>
+  </nav>
+
+  <!-- ── Tab: Quick Start ──────────────────────────────────────────── -->
+  <section class="panel" id="panel-quickstart" role="tabpanel">
+    <div class="panel-header">
+      <h2 class="panel-title">Quick Start</h2>
+      <p class="panel-desc">Master controls and live status.</p>
+    </div>
+
+    <div class="card">
+      <h3 class="card-title">🎮 Bot Control</h3>
+      <div class="control-row" style="margin-bottom: 16px;">
+        <button class="btn btn-start btn-xl" id="startBtn">▶ BULK START ALL</button>
+        <button class="btn btn-stop  btn-xl" id="stopBtn">⏹ BULK STOP ALL</button>
+      </div>
+      
+      <div class="log-toolbar">
+        <h4 style="font-size: 0.9rem; color: var(--muted);">Live Activity</h4>
+        <label class="toggle-wrap">
+          <input type="checkbox" id="autoScrollToggle" checked />
+          <span class="toggle-label">Auto-scroll</span>
+        </label>
+        <button class="btn btn-sm btn-danger" id="clearLogsBtn">🗑 Clear</button>
+      </div>
+      <div id="logTerminal" class="log-terminal" style="height: 300px;" aria-live="polite"></div>
+    </div>
+  </section>
+
+  <!-- ── Tab: Products ─────────────────────────────────────────────── -->
+  <section class="panel hidden" id="panel-products" role="tabpanel">
+    <div class="panel-header">
+      <h2 class="panel-title">Product Links</h2>
+      <p class="panel-desc">Manage products and configure per-product shipping & payment details.</p>
+    </div>
+
+    <div class="card add-card">
+      <h3 class="card-title">➕ Add Product</h3>
+      <div class="form-row">
+        <div class="field field-grow">
+          <label for="productUrl">Product URL</label>
+          <input type="url" id="productUrl" placeholder="https://www.pokemoncenter.com/product/..." />
+        </div>
+        <div class="field">
+          <label for="productLabel">Label (optional)</label>
+          <input type="text" id="productLabel" placeholder="e.g. Pikachu Card" />
+        </div>
+        <div class="field">
+          <label for="productProfile">Assign Profile</label>
+          <select id="productProfile"><option value="">— Any Profile —</option></select>
+        </div>
+        <button class="btn btn-primary" id="addProductBtn">Add Product</button>
+      </div>
+    </div>
+
+    <div id="productsList" class="item-list"></div>
+  </section>
+
+  <!-- ── Tab: Profiles ─────────────────────────────────────────────── -->
+  <section class="panel hidden" id="panel-profiles" role="tabpanel">
+    <div class="panel-header">
+      <h2 class="panel-title">Chrome Profiles</h2>
+      <p class="panel-desc">Add your Chrome profile directories, then launch them directly from here.</p>
+    </div>
+
+    <div class="card add-card">
+      <h3 class="card-title">➕ Add Profile</h3>
+      <div class="form-row">
+        <div class="field field-grow">
+          <label for="profileSelect">Available Local Profiles</label>
+          <select id="profileSelect">
+            <option value="">Scanning...</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" id="addProfileBtn">Add Profile</button>
+      </div>
+      <p class="hint">📁 Found under: <code>%LOCALAPPDATA%\Google\Chrome\User Data\</code></p>
+    </div>
+
+    <div id="profilesList" class="item-list"></div>
+  </section>
+
+  <!-- ── Tab: Settings ──────────────────────────────────────────── -->
+  <section class="panel hidden" id="panel-settings" role="tabpanel">
+    <div class="panel-header">
+      <h2 class="panel-title">Global Settings</h2>
+      <p class="panel-desc">Configure global bot settings shared across all products.</p>
+    </div>
+
+    <!-- Timing -->
+    <div class="card">
+      <h3 class="card-title">⏱️ Timing &amp; Quantity</h3>
+      <div class="form-grid">
+        <div class="field">
+          <label for="cfgQty">Target Quantity</label>
+          <input type="number" id="cfgQty" min="1" max="99" value="1" />
+        </div>
+        <div class="field">
+          <label for="cfgMinDelay">Min Delay (s)</label>
+          <input type="number" id="cfgMinDelay" min="1" max="300" value="5" />
+        </div>
+        <div class="field">
+          <label for="cfgMaxDelay">Max Delay (s)</label>
+          <input type="number" id="cfgMaxDelay" min="1" max="300" value="15" />
+        </div>
+        <div class="field">
+          <label for="cfgSchedule">Schedule Start</label>
+          <input type="datetime-local" id="cfgSchedule" />
+        </div>
+      </div>
+      <div style="margin-top: 20px;">
+        <button class="btn btn-primary btn-save" id="saveGlobalConfigBtn">💾 Save Global Settings</button>
+        <div id="saveGlobalMsg" class="save-msg hidden"></div>
+      </div>
+    </div>
+  </section>
+
+</div><!-- /app -->
+
+<script src="/static/app.js"></script>
+</body>
+</html>

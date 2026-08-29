@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Target Monitor</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f1115;
+            color: #e2e8f0;
+        }
+        .navbar {
+            background-color: #1e2128 !important;
+            border-bottom: 1px solid #2d313a;
+        }
+        .card {
+            background-color: #1e2128;
+            border: 1px solid #2d313a;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        .card-header {
+            background-color: #252830;
+            border-bottom: 1px solid #2d313a;
+            font-weight: 600;
+        }
+        .form-control, .form-check-input {
+            background-color: #0f1115;
+            border: 1px solid #2d313a;
+            color: #e2e8f0;
+        }
+        .form-control:focus {
+            background-color: #0f1115;
+            color: #e2e8f0;
+            border-color: #cc0000;
+            box-shadow: 0 0 0 0.25rem rgba(204, 0, 0, 0.25);
+        }
+        .btn-primary {
+            background-color: #cc0000;
+            border-color: #cc0000;
+        }
+        .btn-primary:hover {
+            background-color: #aa0000;
+            border-color: #aa0000;
+        }
+        .product-img {
+            max-width: 120px;
+            max-height: 120px;
+            object-fit: contain;
+            border-radius: 8px;
+            background-color: #fff;
+            padding: 5px;
+        }
+        .badge-restock { background-color: #16a34a; color: #fff; }
+        .badge-oos { background-color: #dc2626; color: #fff; }
+        .badge-price { background-color: #d97706; color: #fff; }
+        .badge-info { background-color: #2563eb; color: #fff; }
+        
+        .event-item {
+            border-left: 3px solid #2d313a;
+            padding-left: 15px;
+            margin-bottom: 15px;
+            position: relative;
+        }
+        .event-item::before {
+            content: '';
+            position: absolute;
+            left: -6px;
+            top: 5px;
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background-color: #2d313a;
+        }
+        .event-restock { border-left-color: #16a34a; }
+        .event-restock::before { background-color: #16a34a; }
+        .event-oos { border-left-color: #dc2626; }
+        .event-oos::before { background-color: #dc2626; }
+        .event-price { border-left-color: #d97706; }
+        .event-price::before { background-color: #d97706; }
+    </style>
+</head>
+<body>
+
+<nav class="navbar navbar-expand-lg navbar-dark mb-4">
+    <div class="container-fluid">
+        <a class="navbar-brand text-danger fw-bold" href="#">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="me-2"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg>
+            Target Monitor
+        </a>
+        <div class="d-flex text-success small fw-semibold">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="me-1"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
+            Live Real-Time Updates
+        </div>
+    </div>
+</nav>
+
+<div class="container-fluid px-4 pb-4">
+    <ul class="nav nav-tabs mb-4 border-secondary" id="botTabs" role="tablist">
+      <li class="nav-item" role="presentation">
+        <button class="nav-link active fw-bold text-danger bg-dark border-secondary border-bottom-0" id="target-tab" data-bs-toggle="tab" data-bs-target="#target-pane" type="button" role="tab" aria-controls="target-pane" aria-selected="true" style="border-radius: 8px 8px 0 0;">🎯 Target Monitor</button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link fw-bold text-warning border-secondary border-bottom-0" id="pokemon-tab" data-bs-toggle="tab" data-bs-target="#pokemon-pane" type="button" role="tab" aria-controls="pokemon-pane" aria-selected="false" style="border-radius: 8px 8px 0 0; margin-left: 5px;">⚡ Pokemon Center Bot</button>
+      </li>
+    </ul>
+
+    <div class="tab-content" id="botTabsContent">
+        <!-- Target Pane -->
+        <div class="tab-pane fade show active" id="target-pane" role="tabpanel" aria-labelledby="target-tab" tabindex="0">
+            <div class="row g-4">
+                <!-- Main Content Column -->
+                <div class="col-lg-8">
+            <!-- Add Product -->
+            <div class="card mb-4">
+                <div class="card-body">
+                    <form action="/add_product" method="POST" class="d-flex gap-3 align-items-center">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <div class="flex-grow-1">
+                            <input type="url" name="url" class="form-control form-control-lg" placeholder="Enter Target Product URL (https://www.target.com/p/...)" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-lg px-4 fw-semibold">Add Monitor</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Products List -->
+            <div id="products-container">
+            <h4 class="mb-3 fw-semibold">Monitored Products ({{ products|length }})</h4>
+            <div class="row g-3">
+                {% for product in products %}
+                <div class="col-12">
+                    <div class="card h-100">
+                        <div class="card-body d-flex gap-4">
+                            <div class="text-center" style="width: 140px;">
+                                {% if product.image_url %}
+                                <img src="{{ product.image_url }}" alt="Product" class="product-img mb-2">
+                                {% else %}
+                                <div class="product-img d-flex align-items-center justify-content-center text-muted" style="width:120px; height:120px; background:#2d313a;">No Image</div>
+                                {% endif %}
+                                
+                                {% if product.in_stock %}
+                                <div class="badge badge-restock w-100 py-2 fs-6 mt-2">IN STOCK</div>
+                                {% else %}
+                                <div class="badge badge-oos w-100 py-2 fs-6 mt-2">OUT OF STOCK</div>
+                                {% endif %}
+                            </div>
+                            
+                            <div class="flex-grow-1">
+                                <div class="d-flex justify-content-between align-items-start">
+                                    <h5 class="fw-bold mb-1">{{ product.name or 'Pending Scrape...' }}</h5>
+                                    <form action="/delete_product/{{ product.id }}" method="POST">
+                                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger">Remove</button>
+                                    </form>
+                                </div>
+                                <div class="text-muted small mb-3">
+                                    <a href="{{ product.url }}" target="_blank" class="text-decoration-none text-primary">View on Target ↗</a>
+                                </div>
+                                
+                                <div class="row g-2 mb-3">
+                                    <div class="col-sm-6 col-md-3">
+                                        <div class="text-muted" style="font-size: 0.75rem; text-transform: uppercase;">Price</div>
+                                        <div class="fw-semibold fs-5">${{ product.price or '---' }}</div>
+                                    </div>
+                                    <div class="col-sm-6 col-md-3">
+                                        <div class="text-muted" style="font-size: 0.75rem; text-transform: uppercase;">TCIN</div>
+                                        <div class="fw-semibold">{{ product.tcin or '---' }}</div>
+                                    </div>
+                                    <div class="col-sm-6 col-md-3">
+                                        <div class="text-muted" style="font-size: 0.75rem; text-transform: uppercase;">DPCI</div>
+                                        <div class="fw-semibold">{{ product.dpci or '---' }}</div>
+                                    </div>
+                                    <div class="col-sm-6 col-md-3">
+                                        <div class="text-muted" style="font-size: 0.75rem; text-transform: uppercase;">UPC</div>
+                                        <div class="fw-semibold">{{ product.upc or '---' }}</div>
+                                    </div>
+                                </div>
+
+                                <div class="d-flex justify-content-between align-items-center bg-dark p-2 rounded border border-secondary" style="border-color: #2d313a !important;">
+                                    <div class="small">
+                                        <span class="text-muted me-2">Limit:</span> 
+                                        <span class="fw-medium">{{ product.purchase_limit or 'None' }}</span>
+                                    </div>
+                                    <div class="small text-muted">
+                                        Last Check: {{ product.last_updated.strftime('%Y-%m-%d %H:%M:%S') if product.last_updated else 'Never' }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% else %}
+                <div class="col-12 text-center text-muted py-5">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="mb-3 opacity-50"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                    <h5>No products are currently being monitored</h5>
+                    <p>Add a Target URL above to get started.</p>
+                </div>
+                {% endfor %}
+            </div>
+            </div>
+        </div>
+
+        <!-- Sidebar Column -->
+        <div class="col-lg-4">
+            <!-- Event Log -->
+            <div id="event-log-container">
+            <div class="card mb-4">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>Recent Activity</span>
+                    <span class="badge bg-secondary">{{ recent_events|length }}</span>
+                </div>
+                <div class="card-body" style="max-height: 400px; overflow-y: auto;">
+                    {% for event in recent_events %}
+                        {% set event_class = '' %}
+                        {% if event.event_type == 'RESTOCK' %}{% set event_class = 'event-restock' %}{% endif %}
+                        {% if event.event_type == 'OOS' %}{% set event_class = 'event-oos' %}{% endif %}
+                        {% if event.event_type == 'PRICE_CHANGE' %}{% set event_class = 'event-price' %}{% endif %}
+                        
+                        <div class="event-item {{ event_class }}">
+                            <div class="d-flex justify-content-between">
+                                <strong class="small">{{ event.event_type }}</strong>
+                                <span class="text-muted" style="font-size: 0.75rem;">{{ event.timestamp.strftime('%H:%M:%S') }}</span>
+                            </div>
+                            <div class="small text-truncate mt-1 text-muted" title="{{ event.product.name }}">
+                                {{ event.product.name or 'Product ' ~ event.product_id }}
+                            </div>
+                            {% if event.old_value and event.new_value %}
+                            <div class="small mt-1 bg-dark px-2 py-1 rounded" style="font-family: monospace; font-size: 0.75rem;">
+                                {{ event.old_value }} → {{ event.new_value }}
+                            </div>
+                            {% endif %}
+                        </div>
+                    {% else %}
+                        <div class="text-center text-muted small py-4">No recent activity</div>
+                    {% endfor %}
+                </div>
+            </div>
+            </div>
+
+            <!-- Settings -->
+            <div class="card">
+                <div class="card-header">
+                    Bot Settings
+                </div>
+                <div class="card-body">
+                    <form action="/update_settings" method="POST">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                        <div class="mb-3">
+                            <label class="form-label small fw-semibold text-muted">Discord Webhook URL</label>
+                            <div class="input-group">
+                                <input type="text" id="discordWebhookInput" name="discord_webhook_url" class="form-control form-control-sm" value="{{ settings.discord_webhook_url or '' }}" placeholder="https://discord.com/api/webhooks/...">
+                                <button type="button" class="btn btn-outline-secondary btn-sm" id="testWebhookBtn">Test</button>
+                            </div>
+                        </div>
+                        <div class="row g-2 mb-3">
+                            <div class="col-6">
+                                <label class="form-label small fw-semibold text-muted">Min Delay (ms)</label>
+                                <input type="number" name="min_delay" class="form-control form-control-sm" value="{{ settings.min_delay }}" min="100" step="100">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small fw-semibold text-muted">Max Delay (ms)</label>
+                                <input type="number" name="max_delay" class="form-control form-control-sm" value="{{ settings.max_delay }}" min="100" step="100">
+                            </div>
+                        </div>
+                        <div class="mb-4 form-check form-switch">
+                            <input type="checkbox" class="form-check-input" name="headless" id="headlessCheck" value="true" {% if settings.headless %}checked{% endif %}>
+                            <label class="form-check-label small" for="headlessCheck">Headless Browser Mode</label>
+                        </div>
+                        <div class="mb-4">
+                            <label class="form-label small fw-semibold text-muted">Proxy List</label>
+                            <textarea name="proxies" class="form-control form-control-sm" rows="3" placeholder="http://ip:port&#10;http://user:pass@ip:port">{{ settings.proxies or '' }}</textarea>
+                            <div class="form-text small" style="font-size: 0.7rem;">One proxy per line. Used by the bot to avoid blocks.</div>
+                        </div>
+                        <button type="submit" class="btn btn-outline-light btn-sm w-100">Save Settings</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+        </div>
+        
+        <!-- Pokemon Pane -->
+        <div class="tab-pane fade" id="pokemon-pane" role="tabpanel" aria-labelledby="pokemon-tab" tabindex="0">
+            <iframe src="/pokemon" width="100%" height="800px" style="border:1px solid #2d313a; border-radius:12px; background:#000;"></iframe>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Real-time updates using Server-Sent Events
+    const evtSource = new EventSource("/api/stream");
+    
+    evtSource.onmessage = async function(event) {
+        if (event.data === "update") {
+            try {
+                const response = await fetch(window.location.href);
+                const html = await response.text();
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+                
+                // Update products list
+                const newProducts = doc.getElementById('products-container');
+                if (newProducts) document.getElementById('products-container').innerHTML = newProducts.innerHTML;
+                
+                // Update event log
+                const newEventLog = doc.getElementById('event-log-container');
+                if (newEventLog) document.getElementById('event-log-container').innerHTML = newEventLog.innerHTML;
+            } catch (e) {
+                console.error('Real-time DOM update failed:', e);
+            }
+        }
+    };
+    
+    document.getElementById('testWebhookBtn').addEventListener('click', async () => {
+        const url = document.getElementById('discordWebhookInput').value;
+        if (!url) {
+            alert('Please enter a Webhook URL first!');
+            return;
+        }
+        
+        const btn = document.getElementById('testWebhookBtn');
+        const originalText = btn.innerText;
+        btn.innerText = '...';
+        btn.disabled = true;
+        
+        try {
+            const formData = new FormData();
+            formData.append('discord_webhook_url', url);
+            formData.append('csrf_token', '{{ csrf_token }}');
+            const res = await fetch('/test_webhook', { method: 'POST', body: formData });
+            const data = await res.json();
+            if (data.status === 'success') {
+                alert(data.message);
+            } else {
+                alert('Error: ' + data.message);
+            }
+        } catch (e) {
+            alert('Failed to send test webhook: ' + e);
+        } finally {
+            btn.innerText = originalText;
+            btn.disabled = false;
+        }
+    });
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+</body>
+</html>

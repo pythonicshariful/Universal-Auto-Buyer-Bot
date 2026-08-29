@@ -1,0 +1,58 @@
+import os
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Float, ForeignKey
+from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.orm import sessionmaker
+import datetime
+
+SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./target_monitor.db")
+
+# Use slightly different arguments if it's sqlite vs postgres
+connect_args = {}
+if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
+    connect_args = {"check_same_thread": False}
+
+engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args=connect_args)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+Base = declarative_base()
+
+class Product(Base):
+    __tablename__ = "products"
+
+    id = Column(Integer, primary_key=True, index=True)
+    url = Column(String, unique=True, index=True)
+    name = Column(String, nullable=True)
+    tcin = Column(String, nullable=True)
+    dpci = Column(String, nullable=True)
+    upc = Column(String, nullable=True)
+    price = Column(Float, nullable=True)
+    in_stock = Column(Boolean, default=False)
+    image_url = Column(String, nullable=True)
+    atc_url = Column(String, nullable=True)
+    purchase_limit = Column(String, nullable=True)
+    last_updated = Column(DateTime, default=datetime.datetime.utcnow)
+    
+    events = relationship("ChangeEvent", back_populates="product", cascade="all, delete-orphan")
+
+class ChangeEvent(Base):
+    __tablename__ = "change_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"))
+    event_type = Column(String, index=True) # RESTOCK, OOS, PRICE_CHANGE, NEW_LISTING, DETAIL_UPDATE
+    old_value = Column(String, nullable=True)
+    new_value = Column(String, nullable=True)
+    timestamp = Column(DateTime, default=datetime.datetime.utcnow)
+
+    product = relationship("Product", back_populates="events")
+
+class Settings(Base):
+    __tablename__ = "settings"
+    id = Column(Integer, primary_key=True, index=True)
+    discord_webhook_url = Column(String, nullable=True)
+    min_delay = Column(Integer, default=100)
+    max_delay = Column(Integer, default=200)
+    headless = Column(Boolean, default=True)
+    proxies = Column(String, nullable=True)
+
+Base.metadata.create_all(bind=engine)
