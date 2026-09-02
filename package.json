@@ -4,11 +4,12 @@
   "description": "Headless Target bot",
   "main": "bot.js",
   "scripts": {
-    "start": "node bot.js"
+    "start": "node bot.js",
+    "start:walmart": "node walmart_bot.js"
   },
   "dependencies": {
     "axios": "1.19.0",
-    "dotenv": "16.4.5",
+    "dotenv": "^16.4.5",
     "https-proxy-agent": "9.1.0",
     "puppeteer": "25.8.0",
     "puppeteer-extra": "3.3.6",

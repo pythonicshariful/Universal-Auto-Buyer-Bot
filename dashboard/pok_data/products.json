@@ -6,6 +6,7 @@
     "profile_id": "1d70aafc-5b21-40ce-87a0-204be1e58d8c",
     "shipping": {},
     "payment": {},
-    "target_qty": null
+    "target_qty": null,
+    "running": true
   }
 ]

@@ -32,7 +32,13 @@ class Product(Base):
     purchase_limit = Column(String, nullable=True)
     last_updated = Column(DateTime, default=datetime.datetime.utcnow)
     
+    # New global checkout features
+    profile_id = Column(Integer, ForeignKey("chrome_profiles.id"), nullable=True)
+    quantity = Column(Integer, nullable=True)
+    scheduled_time = Column(String, nullable=True)
+    
     events = relationship("ChangeEvent", back_populates="product", cascade="all, delete-orphan")
+    profile = relationship("ChromeProfile")
 
 class ChangeEvent(Base):
     __tablename__ = "change_events"
@@ -54,5 +60,73 @@ class Settings(Base):
     max_delay = Column(Integer, default=200)
     headless = Column(Boolean, default=True)
     proxies = Column(String, nullable=True)
+
+class WalmartProduct(Base):
+    __tablename__ = "walmart_products"
+
+    id = Column(Integer, primary_key=True, index=True)
+    url = Column(String, unique=True, index=True)
+    name = Column(String, nullable=True)
+    price = Column(Float, nullable=True)
+    in_stock = Column(Boolean, default=False)
+    image_url = Column(String, nullable=True)
+    last_updated = Column(DateTime, default=datetime.datetime.utcnow)
+    
+    # New global checkout features
+    profile_id = Column(Integer, ForeignKey("chrome_profiles.id"), nullable=True)
+    quantity = Column(Integer, nullable=True)
+    scheduled_time = Column(String, nullable=True)
+    
+    events = relationship("WalmartChangeEvent", back_populates="product", cascade="all, delete-orphan")
+    profile = relationship("ChromeProfile")
+
+class WalmartChangeEvent(Base):
+    __tablename__ = "walmart_change_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("walmart_products.id"))
+    event_type = Column(String, index=True) 
+    old_value = Column(String, nullable=True)
+    new_value = Column(String, nullable=True)
+    timestamp = Column(DateTime, default=datetime.datetime.utcnow)
+
+    product = relationship("WalmartProduct", back_populates="events")
+
+class ChromeProfile(Base):
+    __tablename__ = "chrome_profiles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True)
+    path = Column(String, nullable=True)
+
+class PokemonProduct(Base):
+    __tablename__ = "pokemon_products"
+
+    id = Column(Integer, primary_key=True, index=True)
+    url = Column(String, unique=True, index=True)
+    name = Column(String, nullable=True)
+    price = Column(Float, nullable=True)
+    in_stock = Column(Boolean, default=False)
+    image_url = Column(String, nullable=True)
+    last_updated = Column(DateTime, default=datetime.datetime.utcnow)
+    
+    profile_id = Column(Integer, ForeignKey("chrome_profiles.id"), nullable=True)
+    quantity = Column(Integer, nullable=True)
+    scheduled_time = Column(String, nullable=True)
+    
+    events = relationship("PokemonChangeEvent", back_populates="product", cascade="all, delete-orphan")
+    profile = relationship("ChromeProfile")
+
+class PokemonChangeEvent(Base):
+    __tablename__ = "pokemon_change_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    product_id = Column(Integer, ForeignKey("pokemon_products.id"))
+    event_type = Column(String, index=True) 
+    old_value = Column(String, nullable=True)
+    new_value = Column(String, nullable=True)
+    timestamp = Column(DateTime, default=datetime.datetime.utcnow)
+
+    product = relationship("PokemonProduct", back_populates="events")
 
 Base.metadata.create_all(bind=engine)

@@ -106,6 +106,9 @@
       <li class="nav-item" role="presentation">
         <button class="nav-link fw-bold text-warning border-secondary border-bottom-0" id="pokemon-tab" data-bs-toggle="tab" data-bs-target="#pokemon-pane" type="button" role="tab" aria-controls="pokemon-pane" aria-selected="false" style="border-radius: 8px 8px 0 0; margin-left: 5px;">⚡ Pokemon Center Bot</button>
       </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link fw-bold text-info border-secondary border-bottom-0" id="walmart-tab" data-bs-toggle="tab" data-bs-target="#walmart-pane" type="button" role="tab" aria-controls="walmart-pane" aria-selected="false" style="border-radius: 8px 8px 0 0; margin-left: 5px;">🛒 Walmart Bot</button>
+      </li>
     </ul>
 
     <div class="tab-content" id="botTabsContent">
@@ -283,6 +286,116 @@
     </div>
         </div>
         
+        <!-- Walmart Pane -->
+        <div class="tab-pane fade" id="walmart-pane" role="tabpanel" aria-labelledby="walmart-tab" tabindex="0">
+            <div class="row g-4">
+                <div class="col-lg-8">
+                    <div class="card mb-4">
+                        <div class="card-body">
+                            <form action="/walmart/add_product" method="POST" class="d-flex gap-3 align-items-center">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                <div class="flex-grow-1">
+                                    <input type="url" name="url" class="form-control form-control-lg" placeholder="Enter Walmart Product URL (https://www.walmart.com/ip/...)" required>
+                                </div>
+                                <button type="submit" class="btn btn-primary btn-lg px-4 fw-semibold" style="background-color: #0071ce; border-color: #0071ce;">Add Monitor</button>
+                            </form>
+                        </div>
+                    </div>
+                    <div id="walmart-products-container">
+                        <h4 class="mb-3 fw-semibold">Walmart Monitored Products ({{ walmart_products|length }})</h4>
+                        <div class="row g-3">
+                            {% for product in walmart_products %}
+                            <div class="col-12">
+                                <div class="card h-100">
+                                    <div class="card-body d-flex gap-4">
+                                        <div class="text-center" style="width: 140px;">
+                                            {% if product.image_url %}
+                                            <img src="{{ product.image_url }}" alt="Product" class="product-img mb-2">
+                                            {% else %}
+                                            <div class="product-img d-flex align-items-center justify-content-center text-muted" style="width:120px; height:120px; background:#2d313a;">No Image</div>
+                                            {% endif %}
+                                            
+                                            {% if product.in_stock %}
+                                            <div class="badge badge-restock w-100 py-2 fs-6 mt-2">IN STOCK</div>
+                                            {% else %}
+                                            <div class="badge badge-oos w-100 py-2 fs-6 mt-2">OUT OF STOCK</div>
+                                            {% endif %}
+                                        </div>
+                                        <div class="flex-grow-1">
+                                            <div class="d-flex justify-content-between align-items-start">
+                                                <h5 class="fw-bold mb-1">{{ product.name or 'Pending Scrape...' }}</h5>
+                                                <form action="/walmart/delete_product/{{ product.id }}" method="POST">
+                                                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                                                    <button type="submit" class="btn btn-sm btn-outline-danger">Remove</button>
+                                                </form>
+                                            </div>
+                                            <div class="text-muted small mb-3">
+                                                <a href="{{ product.url }}" target="_blank" class="text-decoration-none" style="color: #0071ce;">View on Walmart ↗</a>
+                                            </div>
+                                            <div class="row g-2 mb-3">
+                                                <div class="col-sm-6 col-md-3">
+                                                    <div class="text-muted" style="font-size: 0.75rem; text-transform: uppercase;">Price</div>
+                                                    <div class="fw-semibold fs-5">${{ product.price or '---' }}</div>
+                                                </div>
+                                            </div>
+                                            <div class="d-flex justify-content-between align-items-center bg-dark p-2 rounded border border-secondary" style="border-color: #2d313a !important;">
+                                                <div class="small text-muted">
+                                                    Last Check: {{ product.last_updated.strftime('%Y-%m-%d %H:%M:%S') if product.last_updated else 'Never' }}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {% else %}
+                            <div class="col-12 text-center text-muted py-5">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="mb-3 opacity-50"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                                <h5>No products are currently being monitored</h5>
+                                <p>Add a Walmart URL above to get started.</p>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-lg-4">
+                    <div id="walmart-event-log-container">
+                        <div class="card mb-4">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <span>Recent Activity</span>
+                                <span class="badge bg-secondary">{{ walmart_recent_events|length }}</span>
+                            </div>
+                            <div class="card-body" style="max-height: 400px; overflow-y: auto;">
+                                {% for event in walmart_recent_events %}
+                                    {% set event_class = '' %}
+                                    {% if event.event_type == 'RESTOCK' %}{% set event_class = 'event-restock' %}{% endif %}
+                                    {% if event.event_type == 'OOS' %}{% set event_class = 'event-oos' %}{% endif %}
+                                    {% if event.event_type == 'PRICE_CHANGE' %}{% set event_class = 'event-price' %}{% endif %}
+                                    
+                                    <div class="event-item {{ event_class }}">
+                                        <div class="d-flex justify-content-between">
+                                            <strong class="small">{{ event.event_type }}</strong>
+                                            <span class="text-muted" style="font-size: 0.75rem;">{{ event.timestamp.strftime('%H:%M:%S') }}</span>
+                                        </div>
+                                        <div class="small text-truncate mt-1 text-muted" title="{{ event.product.name }}">
+                                            {{ event.product.name or 'Product ' ~ event.product_id }}
+                                        </div>
+                                        {% if event.old_value and event.new_value %}
+                                        <div class="small mt-1 bg-dark px-2 py-1 rounded" style="font-family: monospace; font-size: 0.75rem;">
+                                            {{ event.old_value }} → {{ event.new_value }}
+                                        </div>
+                                        {% endif %}
+                                    </div>
+                                {% else %}
+                                    <div class="text-center text-muted small py-4">No recent activity</div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
         <!-- Pokemon Pane -->
         <div class="tab-pane fade" id="pokemon-pane" role="tabpanel" aria-labelledby="pokemon-tab" tabindex="0">
             <iframe src="/pokemon" width="100%" height="800px" style="border:1px solid #2d313a; border-radius:12px; background:#000;"></iframe>
@@ -309,6 +422,18 @@
                 // Update event log
                 const newEventLog = doc.getElementById('event-log-container');
                 if (newEventLog) document.getElementById('event-log-container').innerHTML = newEventLog.innerHTML;
+                
+                // Update Walmart products list
+                const newWalmartProducts = doc.getElementById('walmart-products-container');
+                if (newWalmartProducts && document.getElementById('walmart-products-container')) {
+                    document.getElementById('walmart-products-container').innerHTML = newWalmartProducts.innerHTML;
+                }
+                
+                // Update Walmart event log
+                const newWalmartEventLog = doc.getElementById('walmart-event-log-container');
+                if (newWalmartEventLog && document.getElementById('walmart-event-log-container')) {
+                    document.getElementById('walmart-event-log-container').innerHTML = newWalmartEventLog.innerHTML;
+                }
             } catch (e) {
                 console.error('Real-time DOM update failed:', e);
             }

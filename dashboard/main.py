@@ -11,7 +11,7 @@ global_last_update = time.time()
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from database import SessionLocal, Product, Settings, ChangeEvent as DBChangeEvent, engine
+from database import SessionLocal, Product, Settings, ChangeEvent as DBChangeEvent, WalmartProduct, WalmartChangeEvent, engine
 from pydantic import BaseModel
 import datetime
 import os
@@ -121,10 +121,23 @@ def verify_api_key(api_key: str = Depends(api_key_header)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API Key")
     return api_key
 
-# Safe migration
+# Safe migrations
 try:
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE settings ADD COLUMN proxies TEXT"))
+except Exception:
+    pass
+
+try:
+    with engine.begin() as conn:
+        # products
+        conn.execute(text("ALTER TABLE products ADD COLUMN profile_id INTEGER"))
+        conn.execute(text("ALTER TABLE products ADD COLUMN quantity INTEGER"))
+        conn.execute(text("ALTER TABLE products ADD COLUMN scheduled_time TEXT"))
+        # walmart_products
+        conn.execute(text("ALTER TABLE walmart_products ADD COLUMN profile_id INTEGER"))
+        conn.execute(text("ALTER TABLE walmart_products ADD COLUMN quantity INTEGER"))
+        conn.execute(text("ALTER TABLE walmart_products ADD COLUMN scheduled_time TEXT"))
 except Exception:
     pass
 
@@ -161,14 +174,21 @@ async def websocket_endpoint(websocket: WebSocket):
 
 @app.get("/pokemon", response_class=HTMLResponse)
 async def read_pokemon(request: Request):
-    return templates.TemplateResponse("pok_index.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="pok_index.html", context={})
 
 @app.get("/", response_class=HTMLResponse)
 def read_dashboard(request: Request, db: Session = Depends(get_db), user: str = Depends(verify_basic_auth)):
     products = db.query(Product).order_by(Product.id.asc()).all()
+    walmart_products = db.query(WalmartProduct).order_by(WalmartProduct.id.asc()).all()
+    from database import PokemonProduct, PokemonChangeEvent, ChromeProfile
+    pokemon_products = db.query(PokemonProduct).order_by(PokemonProduct.id.asc()).all()
     
     # Load last 10 events for display
     recent_events = db.query(DBChangeEvent).order_by(DBChangeEvent.timestamp.desc()).limit(15).all()
+    walmart_recent_events = db.query(WalmartChangeEvent).order_by(WalmartChangeEvent.timestamp.desc()).limit(15).all()
+    pokemon_recent_events = db.query(PokemonChangeEvent).order_by(PokemonChangeEvent.timestamp.desc()).limit(15).all()
+    
+    chrome_profiles = db.query(ChromeProfile).all()
     
     settings = get_settings(db)
     
@@ -186,8 +206,13 @@ def read_dashboard(request: Request, db: Session = Depends(get_db), user: str = 
     csrf_token = secrets.token_urlsafe(32)
     response = templates.TemplateResponse(request=request, name="index.html", context={
         "products": products, 
+        "walmart_products": walmart_products,
+        "pokemon_products": pokemon_products,
         "settings": masked_settings,
         "recent_events": recent_events,
+        "walmart_recent_events": walmart_recent_events,
+        "pokemon_recent_events": pokemon_recent_events,
+        "chrome_profiles": chrome_profiles,
         "csrf_token": csrf_token
     })
     response.set_cookie("csrf_token", csrf_token, httponly=True, samesite="lax")
@@ -201,9 +226,32 @@ def add_product(request: Request, url: str = Form(...), db: Session = Depends(ge
         db.commit()
     return RedirectResponse(url="/", status_code=303)
 
+@app.post("/walmart/add_product")
+def walmart_add_product(request: Request, url: str = Form(...), profile_id: int = Form(None), quantity: int = Form(None), db: Session = Depends(get_db), user: str = Depends(verify_basic_auth), _: None = Depends(verify_csrf)):
+    if not db.query(WalmartProduct).filter(WalmartProduct.url == url).first():
+        new_product = WalmartProduct(url=url, profile_id=profile_id, quantity=quantity)
+        db.add(new_product)
+        db.commit()
+    return RedirectResponse(url="/", status_code=303)
+
+@app.post("/pokemon/add_product")
+def pokemon_add_product(request: Request, url: str = Form(...), profile_id: int = Form(None), quantity: int = Form(None), db: Session = Depends(get_db), user: str = Depends(verify_basic_auth), _: None = Depends(verify_csrf)):
+    from database import PokemonProduct
+    if not db.query(PokemonProduct).filter(PokemonProduct.url == url).first():
+        new_product = PokemonProduct(url=url, profile_id=profile_id, quantity=quantity)
+        db.add(new_product)
+        db.commit()
+    return RedirectResponse(url="/", status_code=303)
+
 @app.post("/delete_product/{product_id}")
 def delete_product(request: Request, product_id: int, db: Session = Depends(get_db), user: str = Depends(verify_basic_auth), _: None = Depends(verify_csrf)):
     db.query(Product).filter(Product.id == product_id).delete()
+    db.commit()
+    return RedirectResponse(url="/", status_code=303)
+
+@app.post("/walmart/delete_product/{product_id}")
+def walmart_delete_product(request: Request, product_id: int, db: Session = Depends(get_db), user: str = Depends(verify_basic_auth), _: None = Depends(verify_csrf)):
+    db.query(WalmartProduct).filter(WalmartProduct.id == product_id).delete()
     db.commit()
     return RedirectResponse(url="/", status_code=303)
 
@@ -261,9 +309,88 @@ def get_api_products(db: Session = Depends(get_db), api_key: str = Depends(verif
             "upc": p.upc,
             "purchase_limit": p.purchase_limit,
             "image_url": p.image_url,
-            "atc_url": p.atc_url
+            "atc_url": p.atc_url,
+            "profile_id": p.profile_id,
+            "quantity": p.quantity,
+            "scheduled_time": p.scheduled_time
         })
     return result
+
+@app.get("/api/walmart/products")
+def get_api_walmart_products(db: Session = Depends(get_db), api_key: str = Depends(verify_api_key)):
+    products = db.query(WalmartProduct).all()
+    result = []
+    for p in products:
+        result.append({
+            "url": p.url,
+            "name": p.name,
+            "price": p.price,
+            "in_stock": p.in_stock,
+            "image_url": p.image_url,
+            "profile_id": p.profile_id,
+            "quantity": p.quantity,
+            "scheduled_time": p.scheduled_time
+        })
+    return result
+
+@app.get("/api/pokemon/products")
+def get_api_pokemon_products(db: Session = Depends(get_db), api_key: str = Depends(verify_api_key)):
+    from database import PokemonProduct
+    products = db.query(PokemonProduct).all()
+    result = []
+    for p in products:
+        result.append({
+            "url": p.url,
+            "name": p.name,
+            "price": p.price,
+            "in_stock": p.in_stock,
+            "image_url": p.image_url,
+            "profile_id": p.profile_id,
+            "quantity": p.quantity,
+            "scheduled_time": p.scheduled_time
+        })
+    return result
+
+@app.get("/api/chrome_profiles")
+def get_api_chrome_profiles(db: Session = Depends(get_db), api_key: str = Depends(verify_api_key)):
+    from database import ChromeProfile
+    profiles = db.query(ChromeProfile).all()
+    result = []
+    for p in profiles:
+        result.append({
+            "id": p.id,
+            "name": p.name,
+            "path": p.path
+        })
+    return result
+
+@app.get("/api/local_profiles")
+def get_api_local_profiles(db: Session = Depends(get_db), user: str = Depends(verify_basic_auth)):
+    def chrome_user_data_dir() -> str:
+        return os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\User Data")
+    local_state_path = os.path.join(chrome_user_data_dir(), "Local State")
+    found_profiles = []
+    if os.path.exists(local_state_path):
+        try:
+            with open(local_state_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                info_cache = data.get("profile", {}).get("info_cache", {})
+                for dir_name, info in info_cache.items():
+                    name = info.get("name", dir_name)
+                    if dir_name not in ("System Profile", "Guest Profile"):
+                        found_profiles.append({"dir_name": dir_name, "name": name, "path": os.path.join(chrome_user_data_dir(), dir_name)})
+        except Exception:
+            pass
+    return {"local_profiles": found_profiles}
+
+@app.post("/api/chrome_profiles/add")
+def api_add_chrome_profile(request: Request, name: str = Form(...), path: str = Form(...), db: Session = Depends(get_db), user: str = Depends(verify_basic_auth), _: None = Depends(verify_csrf)):
+    from database import ChromeProfile
+    if not db.query(ChromeProfile).filter(ChromeProfile.name == name).first():
+        new_profile = ChromeProfile(name=name, path=path)
+        db.add(new_profile)
+        db.commit()
+    return RedirectResponse(url="/", status_code=303)
 
 @app.get("/api/settings")
 def get_api_settings(db: Session = Depends(get_db), api_key: str = Depends(verify_api_key)):
@@ -342,6 +469,115 @@ def update_api_product(snapshot: ProductSnapshot, background_tasks: BackgroundTa
         background_tasks.add_task(
             manager.broadcast,
             {"action": "RESTOCK", "url": snapshot.url, "atc_url": snapshot.atc_url}
+        )
+    
+    return {
+        "status": "success",
+        "events_generated": len(events)
+    }
+
+@app.post("/api/walmart/products/update")
+def update_api_walmart_product(snapshot: ProductSnapshot, background_tasks: BackgroundTasks, db: Session = Depends(get_db), api_key: str = Depends(verify_api_key)):
+    product = db.query(WalmartProduct).filter(WalmartProduct.url == snapshot.url).first()
+    if not product:
+        return {"error": "Walmart Product not found"}
+        
+    old_snapshot = None
+    if product.name or product.price or product.last_updated:
+        old_snapshot = ProductSnapshot(
+            url=product.url,
+            name=product.name,
+            price=product.price,
+            in_stock=product.in_stock or False,
+            image_url=product.image_url,
+            timestamp=product.last_updated or datetime.datetime.utcnow()
+        )
+        
+    events = diff_snapshots(old_snapshot, snapshot)
+    
+    product.name = snapshot.name or product.name
+    product.price = snapshot.price if snapshot.price is not None else product.price
+    product.in_stock = snapshot.in_stock
+    product.image_url = snapshot.image_url or product.image_url
+    product.last_updated = datetime.datetime.utcnow()
+    
+    global global_last_update
+    global_last_update = time.time()
+    
+    restocked = False
+    for ev in events:
+        if ev.event_type == "RESTOCK" or (ev.event_type == "NEW_LISTING" and snapshot.in_stock):
+            restocked = True
+        db_event = WalmartChangeEvent(
+            product_id=product.id,
+            event_type=ev.event_type,
+            old_value=ev.old_value,
+            new_value=ev.new_value,
+            timestamp=datetime.datetime.utcnow()
+        )
+        db.add(db_event)
+        
+    db.commit()
+    
+    if restocked:
+        background_tasks.add_task(
+            manager.broadcast,
+            {"action": "RESTOCK", "url": snapshot.url}
+        )
+    
+    return {
+        "status": "success",
+        "events_generated": len(events)
+    }
+
+@app.post("/api/pokemon/products/update")
+def update_api_pokemon_product(snapshot: ProductSnapshot, background_tasks: BackgroundTasks, db: Session = Depends(get_db), api_key: str = Depends(verify_api_key)):
+    from database import PokemonProduct, PokemonChangeEvent
+    product = db.query(PokemonProduct).filter(PokemonProduct.url == snapshot.url).first()
+    if not product:
+        return {"error": "Pokemon Product not found"}
+        
+    old_snapshot = None
+    if product.name or product.price or product.last_updated:
+        old_snapshot = ProductSnapshot(
+            url=product.url,
+            name=product.name,
+            price=product.price,
+            in_stock=product.in_stock or False,
+            image_url=product.image_url,
+            timestamp=product.last_updated or datetime.datetime.utcnow()
+        )
+        
+    events = diff_snapshots(old_snapshot, snapshot)
+    
+    product.name = snapshot.name or product.name
+    product.price = snapshot.price if snapshot.price is not None else product.price
+    product.in_stock = snapshot.in_stock
+    product.image_url = snapshot.image_url or product.image_url
+    product.last_updated = datetime.datetime.utcnow()
+    
+    global global_last_update
+    global_last_update = time.time()
+    
+    restocked = False
+    for ev in events:
+        if ev.event_type == "RESTOCK" or (ev.event_type == "NEW_LISTING" and snapshot.in_stock):
+            restocked = True
+        db_event = PokemonChangeEvent(
+            product_id=product.id,
+            event_type=ev.event_type,
+            old_value=ev.old_value,
+            new_value=ev.new_value,
+            timestamp=datetime.datetime.utcnow()
+        )
+        db.add(db_event)
+        
+    db.commit()
+    
+    if restocked:
+        background_tasks.add_task(
+            manager.broadcast,
+            {"action": "RESTOCK", "url": snapshot.url}
         )
     
     return {

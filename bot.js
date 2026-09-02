@@ -530,7 +530,7 @@ async function handleProduct(productUrl, page, client) {
     }
 }
 
-async function launchBrowser() {
+async function launchBrowser(profilePath) {
     const args = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'];
     const proxy = proxyManager.getRandomProxy();
     
@@ -541,10 +541,17 @@ async function launchBrowser() {
         console.log(`[Browser] Launching without proxy (direct connection)`);
     }
 
-    const browser = await puppeteer.launch({
-        headless: 'new',
+    const launchOptions = {
+        headless: profilePath ? false : 'new',
         args: args
-    });
+    };
+    
+    if (profilePath) {
+        launchOptions.userDataDir = profilePath;
+        console.log(`[Browser] Launching with Chrome Profile: ${profilePath}`);
+    }
+
+    const browser = await puppeteer.launch(launchOptions);
     
     const page = await browser.newPage();
     
@@ -561,57 +568,67 @@ async function launchBrowser() {
 
 async function runBot() {
     console.log("Starting Target Monitor (CDP Network Interceptor Architecture)...");
-
-    // Load initial settings and proxies from dashboard before first browser launch
     await fetchSettings();
-
-    let { browser, page, client } = await launchBrowser();
     let checkCount = 0;
 
     while (true) {
-        const proxyChanged = await fetchSettings();
-
-        // Rotate browser every 25 checks to refresh fingerprint or immediately if proxies changed
-        if ((checkCount > 0 && checkCount % 25 === 0) || proxyChanged) {
-            console.log('[Browser] Rotating browser session...');
-            await browser.close();
-            let newSession = await launchBrowser();
-            browser = newSession.browser;
-            page = newSession.page;
-            client = newSession.client;
-        }
+        await fetchSettings();
         
         let products = [];
+        let profiles = [];
         try {
             const res = await apiClient.get(API_URL);
-            // res.data is now a list of product objects, not just URLs
             products = res.data;
+            const resProfiles = await apiClient.get(`${API_HOST}/api/chrome_profiles`);
+            profiles = resProfiles.data;
         } catch(e) {
-            console.error("Could not fetch products from API. Is FastAPI running?", e.message);
+            console.error("Could not fetch data from API. Is FastAPI running?", e.message);
         }
 
         if (products.length === 0) {
             console.log("No products to monitor in database. Waiting...");
-        } else {
-            const productUrls = products.map(p => p.url);
+            await sleep(5000);
+            continue;
+        }
 
-            // Cleanup deleted products
-            for (const oldUrl of Object.keys(previousState)) {
-                if (!productUrls.includes(oldUrl)) {
-                    console.log(`Removed tracking for: ${oldUrl}`);
-                    delete previousState[oldUrl];
-                }
+        const productUrls = products.map(p => p.url);
+        for (const oldUrl of Object.keys(previousState)) {
+            if (!productUrls.includes(oldUrl)) {
+                console.log(`Removed tracking for: ${oldUrl}`);
+                delete previousState[oldUrl];
+            }
+        }
+
+        // Group by profile
+        const productGroups = {};
+        for (const p of products) {
+            const pid = p.profile_id || 'default';
+            if (!productGroups[pid]) productGroups[pid] = [];
+            productGroups[pid].push(p);
+        }
+
+        for (const [pid, groupProducts] of Object.entries(productGroups)) {
+            let profilePath = null;
+            if (pid !== 'default') {
+                const profile = profiles.find(pr => String(pr.id) === String(pid));
+                if (profile) profilePath = profile.path;
             }
 
-            // (Initialization is no longer possible from GET /api/products since it only returns URLs, not product details)
-
-            // Check each product
-            for (const productUrl of productUrls) {
-                await handleProduct(productUrl, page, client);
-                checkCount++;
+            console.log(`[Group] Processing ${groupProducts.length} product(s) for profile: ${pid} (${profilePath || 'Headless'})`);
+            let session = null;
+            try {
+                session = await launchBrowser(profilePath);
                 
-                if (productUrls.length > 1) {
-                     await sleep(1500); 
+                for (const p of groupProducts) {
+                    await handleProduct(p.url, session.page, session.client);
+                    checkCount++;
+                    if (groupProducts.length > 1) await sleep(1500); 
+                }
+            } catch (e) {
+                console.error(`Error processing profile group ${pid}:`, e.message);
+            } finally {
+                if (session && session.browser) {
+                    await session.browser.close();
                 }
             }
         }

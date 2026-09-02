@@ -1,0 +1,22 @@
+{
+  "target_qty": 1,
+  "min_delay": 5,
+  "max_delay": 15,
+  "schedule_time": "",
+  "bot_running": true,
+  "profile": {
+    "first_name": "",
+    "last_name": "",
+    "address": "",
+    "apt": "",
+    "zip": "",
+    "phone": "",
+    "email": ""
+  },
+  "payment": {
+    "card_num": "",
+    "exp_month": "08",
+    "exp_year": "2026",
+    "cvv": ""
+  }
+}
