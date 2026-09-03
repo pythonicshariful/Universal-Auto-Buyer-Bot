@@ -178,9 +178,14 @@ async function handleProduct(productUrl, page) {
             
             const html = document.documentElement.innerHTML.toLowerCase();
             
-            // Stock: Out of stock check
-            const oosText = ['out of stock', 'currently out of stock', 'not available'];
-            const inStock = !oosText.some(t => html.includes(t));
+            let inStock = false;
+            if (nextItem && nextItem.availabilityStatus) {
+                inStock = nextItem.availabilityStatus === 'IN_STOCK';
+            } else {
+                const atcButton = document.querySelector('button[data-automation-id="add-to-cart"]') || 
+                                  document.querySelector('[data-testid="add-to-cart-button"]');
+                inStock = !!atcButton;
+            }
             
             // Name
             const nameEl = document.querySelector('h1');

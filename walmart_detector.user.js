@@ -1,30 +1,103 @@
 // ==UserScript==
-// @name         Walmart Bot
+// @name         Walmart Bot (Universal Dashboard)
 // @namespace    http://tampermonkey.net/
-// @version      2.0
+// @version      3.0
 // @description  Smart stock monitor + auto-buy bot for Walmart
-// @author       You
+// @author       Pythonic Shariful
 // @match        https://www.walmart.com/*
 // @grant        unsafeWindow
+// @grant        GM_xmlhttpRequest
 // @run-at       document-start
+// @connect      localhost
 // ==/UserScript==
 
 (function() {
     'use strict';
 
+    // Global Config State
+    let botConfig = {
+        bot_running: false,
+        target_qty: 1,
+        max_price: 50.00,
+        cvv: '123'
+    };
+
+    function gmFetch(url, options = {}) {
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: options.method || 'GET',
+                url: url,
+                headers: options.headers || {},
+                data: options.body || null,
+                onload: (response) => {
+                    resolve({
+                        ok: response.status >= 200 && response.status < 300,
+                        status: response.status,
+                        text: () => Promise.resolve(response.responseText),
+                        json: () => {
+                            try { return Promise.resolve(JSON.parse(response.responseText)); } 
+                            catch (e) { return Promise.reject(e); }
+                        }
+                    });
+                },
+                onerror: reject
+            });
+        });
+    }
+
+    async function sendLog(message, level='info') {
+        try {
+            await gmFetch('http://localhost:8000/api/pok/log', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ message: '[Walmart] ' + message, level })
+            });
+        } catch (e) {}
+    }
+
+    const originalConsoleLog = console.log;
+    console.log = function(...args) {
+        originalConsoleLog.apply(console, args);
+        sendLog(args.join(' '));
+    };
+
+    async function sendHeartbeat() {
+        try {
+            await gmFetch('http://localhost:8000/api/pok/heartbeat', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ url: window.location.href })
+            });
+        } catch (e) {}
+    }
+
+    async function fetchConfig() {
+        try {
+            let u = encodeURIComponent(window.location.href.split('?')[0]);
+            let res = await gmFetch('http://localhost:8000/api/pok/config?url=' + u);
+            if (res.ok) {
+                let data = await res.json();
+                botConfig.bot_running = !!data.bot_running;
+                if (data.target_qty) botConfig.target_qty = parseInt(data.target_qty) || 1;
+                if (data.max_price) botConfig.max_price = parseFloat(data.max_price) || 0;
+                if (data.payment && data.payment.cvv) botConfig.cvv = data.payment.cvv;
+            }
+        } catch (e) {}
+    }
+
+    setInterval(() => {
+        fetchConfig();
+        sendHeartbeat();
+    }, 2000);
+
     // ─── State ───────────────────────────────────────────────────────────────
-    let autoBuyEnabled      = localStorage.getItem('wpd-autobuy') === 'true';
-    let maxPrice            = parseFloat(localStorage.getItem('wpd-max-price')) || 50.00;
-    let targetQuantity      = parseInt(localStorage.getItem('wpd-quantity')) || 1;
-    let targetCvv           = localStorage.getItem('wpd-cvv') || '';
     let botInterval         = null;
     let autoBuyTriggered    = false;
-    let stockStatus         = 'UNKNOWN';  // UNKNOWN | IN_STOCK | OUT_OF_STOCK
+    let stockStatus         = 'UNKNOWN';  
     let currentPrice        = null;
     let stockPollTimer      = null;
     let stockObserver       = null;
-
-    // ─── LAYER 1: Fetch Interceptor ──────────────────────────────────────────
+// ─── LAYER 1: Fetch Interceptor ──────────────────────────────────────────
     // Intercept Walmart's own fetch calls to detect stock changes with ZERO extra requests.
     (function installFetchInterceptor() {
         const win = (typeof unsafeWindow !== 'undefined') ? unsafeWindow : window;
@@ -111,8 +184,8 @@
         updateStockUI();
 
         // If it just came IN_STOCK, try to buy
-        if (status === 'IN_STOCK' && wasOutOfStock && autoBuyEnabled && !autoBuyTriggered) {
-            if (currentPrice === null || currentPrice <= maxPrice) {
+        if (status === 'IN_STOCK' && wasOutOfStock && botConfig.bot_running && !autoBuyTriggered) {
+            if (currentPrice === null || currentPrice <= botConfig.max_price) {
                 console.log('[WPD] Stock just became available! Triggering buy flow...');
                 triggerBuyFlow();
             }
@@ -374,46 +447,46 @@
         const sourceTag    = document.getElementById('wpd-source');
         const settingDiv   = document.getElementById('wpd-settings');
         const settingDiv2  = document.getElementById('wpd-settings-divider');
-        const maxPriceInput= document.getElementById('wpd-max-price');
+        const botConfig.max_priceInput= document.getElementById('wpd-max-price');
         const qtyInput     = document.getElementById('wpd-quantity');
         const cvvInput     = document.getElementById('wpd-cvv');
         const autoBuyBtn   = document.getElementById('wpd-auto-buy-btn');
 
         // Pre-fill saved values
-        maxPriceInput.value = maxPrice.toFixed(2);
-        qtyInput.value      = targetQuantity;
-        cvvInput.value      = targetCvv;
+        botConfig.max_priceInput.value = botConfig.max_price.toFixed(2);
+        qtyInput.value      = botConfig.target_qty;
+        cvvInput.value      = botConfig.cvv;
 
         // Persist on input
-        maxPriceInput.addEventListener('input', e => {
-            maxPrice = parseFloat(e.target.value) || 0;
-            localStorage.setItem('wpd-max-price', maxPrice);
+        botConfig.max_priceInput.addEventListener('input', e => {
+            botConfig.max_price = parseFloat(e.target.value) || 0;
+            localStorage.setItem('wpd-max-price', botConfig.max_price);
         });
         qtyInput.addEventListener('input', e => {
-            targetQuantity = parseInt(e.target.value) || 1;
-            localStorage.setItem('wpd-quantity', targetQuantity);
+            botConfig.target_qty = parseInt(e.target.value) || 1;
+            localStorage.setItem('wpd-quantity', botConfig.target_qty);
         });
         cvvInput.addEventListener('input', e => {
-            targetCvv = e.target.value;
-            localStorage.setItem('wpd-cvv', targetCvv);
+            botConfig.cvv = e.target.value;
+            localStorage.setItem('wpd-cvv', botConfig.cvv);
             // Live-update checkout page CVV field if visible
             const actualCvvField = document.getElementById('cvv-field');
             if (actualCvvField) {
                 const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-                setter.call(actualCvvField, targetCvv);
+                setter.call(actualCvvField, botConfig.cvv);
                 actualCvvField.dispatchEvent(new Event('input', { bubbles: true }));
             }
         });
 
         autoBuyBtn.addEventListener('click', () => {
-            autoBuyEnabled = !autoBuyEnabled;
-            localStorage.setItem('wpd-autobuy', autoBuyEnabled);
+            botConfig.bot_running = !botConfig.bot_running;
+            localStorage.setItem('wpd-autobuy', botConfig.bot_running);
             syncBtnState();
         });
 
         function syncBtnState() {
-            autoBuyBtn.innerText = autoBuyEnabled ? 'Auto Buy: ON' : 'Auto Buy: OFF';
-            autoBuyBtn.className = autoBuyEnabled ? 'wpd-btn wpd-btn-on' : 'wpd-btn wpd-btn-off';
+            autoBuyBtn.innerText = botConfig.bot_running ? 'Auto Buy: ON' : 'Auto Buy: OFF';
+            autoBuyBtn.className = botConfig.bot_running ? 'wpd-btn wpd-btn-on' : 'wpd-btn wpd-btn-off';
         }
         syncBtnState();
 
@@ -498,7 +571,7 @@
         } else if (pathname.includes('/checkout')) {
             if (window._wpdUpdatePageUI) window._wpdUpdatePageUI('checkout');
             stopStockPoll();
-            if (autoBuyEnabled) startCheckoutBot();
+            if (botConfig.bot_running) startCheckoutBot();
 
         } else {
             if (window._wpdUpdatePageUI) window._wpdUpdatePageUI('other');
@@ -541,7 +614,7 @@
             const qtyLabel= document.querySelector('[data-testid="quantity-label"]');
             if (incBtn && qtyLabel) {
                 const cur = parseInt(qtyLabel.innerText);
-                if (cur < targetQuantity) {
+                if (cur < botConfig.target_qty) {
                     if (!incBtn.disabled) incBtn.click();
                     else {
                         clearInterval(interval);
@@ -571,15 +644,15 @@
     // ─── Checkout Bot ─────────────────────────────────────────────────────────
     function startCheckoutBot() {
         const interval = setInterval(() => {
-            if (!autoBuyEnabled || !window.location.pathname.includes('/checkout')) {
+            if (!botConfig.bot_running || !window.location.pathname.includes('/checkout')) {
                 clearInterval(interval);
                 return;
             }
             const cvvField = document.getElementById('cvv-field');
             if (cvvField) {
-                if (targetCvv && cvvField.value !== targetCvv) {
+                if (botConfig.cvv && cvvField.value !== botConfig.cvv) {
                     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-                    setter.call(cvvField, targetCvv);
+                    setter.call(cvvField, botConfig.cvv);
                     cvvField.dispatchEvent(new Event('input', { bubbles: true }));
                     cvvField.dispatchEvent(new Event('change', { bubbles: true }));
                 }

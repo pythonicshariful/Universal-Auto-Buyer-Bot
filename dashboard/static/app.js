@@ -1,5 +1,5 @@
-﻿/* ================================================================
-   PokÃ©Bot Control Center â€” app.js
+/* ================================================================
+   PokéBot Control Center — app.js
    All dashboard logic: tabs, API calls, rendering
    ================================================================ */
 
@@ -46,22 +46,22 @@ async function refreshStatus() {
 
   if (data.bot_running) {
     badge.className = "status-badge status-running";
-    badge.textContent = "â–¶ Running";
+    badge.textContent = "▶ Running";
   } else {
     badge.className = "status-badge status-stopped";
-    badge.textContent = "â¹ Stopped";
+    badge.textContent = "⏹ Stopped";
   }
 
   if (data.chrome_found) {
-    chromeBadge.textContent = "âœ… Chrome detected";
+    chromeBadge.textContent = "✅ Chrome detected";
     chromeBadge.style.color = "#6ee7b7";
   } else {
-    chromeBadge.textContent = "âŒ Chrome not found";
+    chromeBadge.textContent = "❌ Chrome not found";
     chromeBadge.style.color = "#fca5a5";
   }
 }
 
-// â”€â”€ Profiles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ————————————————————————————————————————————————————————————————
 let localProfilesLoaded = false;
 
 async function loadLocalProfiles() {
@@ -73,7 +73,7 @@ async function loadLocalProfiles() {
     return;
   }
 
-  sel.innerHTML = '<option value="">â€” Select Chrome Profile â€”</option>' +
+  sel.innerHTML = '<option value="">— Select Chrome Profile —</option>' +
     data.local_profiles.map(p => `<option value="${esc(p.dir_name)}" data-name="${esc(p.name)}">${esc(p.name)} (${esc(p.dir_name)})</option>`).join("");
 
   localProfilesLoaded = true;
@@ -94,21 +94,21 @@ function renderProfiles() {
   if (!profiles.length) {
     list.innerHTML = `
       <div class="empty-state">
-        <div class="empty-state-icon">ðŸ–¥ï¸</div>
+        <div class="empty-state-icon">🖥️ </div>
         No profiles yet. Add one above.
       </div>`;
     return;
   }
   list.innerHTML = profiles.map(p => `
     <div class="item-card" data-id="${p.id}">
-      <span class="item-icon">ðŸ–¥ï¸</span>
+      <span class="item-icon">🖥️ </span>
       <div class="item-info">
         <div class="item-name">${esc(p.name)}</div>
         <div class="item-sub">Directory: ${esc(p.dir_name)}</div>
       </div>
       <div class="item-actions">
-        <button class="btn btn-primary btn-sm" onclick="launchProfile('${p.id}')">ðŸš€ Launch</button>
-        <button class="btn btn-outline btn-sm" onclick="deleteProfile('${p.id}')">ðŸ—‘</button>
+        <button class="btn btn-primary btn-sm" onclick="launchProfile('${p.id}')">🚀 Launch</button>
+        <button class="btn btn-outline btn-sm" onclick="deleteProfile('${p.id}')">🗑</button>
       </div>
     </div>
   `).join("");
@@ -117,7 +117,7 @@ function renderProfiles() {
 function populateProfileDropdown() {
   const sel = $("productProfile");
   const cur = sel.value;
-  sel.innerHTML = '<option value="">â€” Any Profile â€”</option>' +
+  sel.innerHTML = '<option value="">— Any Profile —</option>' +
     profiles.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join("");
   sel.value = cur;
 }
@@ -128,9 +128,9 @@ async function launchProfile(id) {
 
   const result = await api(`/api/profiles/${id}/launch`, "POST", { urls });
   if (result?.ok) {
-    showToast("ðŸš€ Chrome launched with assigned products!", "ok");
+    showToast("🚀 Chrome launched with assigned products!", "ok");
   } else {
-    showToast("âŒ " + (result?.error || "Failed"), "error");
+    showToast("❌ " + (result?.error || "Failed"), "error");
   }
 }
 
@@ -152,13 +152,13 @@ $("addProfileBtn").addEventListener("click", async () => {
   if (result?.ok) {
     $("profileSelect").value = "";
     loadProfiles();
-    showToast("âœ… Profile added!", "ok");
+    showToast("✅ Profile added!", "ok");
   } else {
-    showToast("âŒ " + (result?.error || "Failed"), "error");
+    showToast("❌ " + (result?.error || "Failed"), "error");
   }
 });
 
-// â”€â”€ Products â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ————————————————————————————————————————————————————————————————
 let products = [];
 
 async function loadProducts() {
@@ -180,6 +180,7 @@ function toggleProductConfig(id) {
 async function saveProductConfig(id) {
   const payload = {
     target_qty: parseInt($(`prod-${id}-qty`).value) || null,
+    max_price: parseFloat($(`prod-${id}-max_price`).value) || null,
     schedule_time: $(`prod-${id}-sched`).value || "",
     shipping: {
       first_name: $(`prod-${id}-fn`).value.trim(),
@@ -200,11 +201,11 @@ async function saveProductConfig(id) {
 
   const result = await api(`/api/products/${id}`, "PUT", payload);
   if (result?.ok) {
-    showToast("âœ… Product config saved!", "ok");
+    showToast("✅ Product config saved!", "ok");
     loadProducts(); // reload memory
     toggleProductConfig(id); // close panel
   } else {
-    showToast("âŒ Failed to save product config", "error");
+    showToast("❌ Failed to save product config", "error");
   }
 }
 
@@ -213,7 +214,7 @@ function renderProducts() {
   if (!products.length) {
     list.innerHTML = `
       <div class="empty-state">
-        <div class="empty-state-icon">ðŸ›ï¸</div>
+        <div class="empty-state-icon">🛒 </div>
         No products yet. Add a URL above.
       </div>`;
     return;
@@ -223,26 +224,32 @@ function renderProducts() {
     const shp = p.shipping || {};
     const pay = p.payment || {};
 
+    let storeIcon = "🛒";
+    let storeBadge = "";
+    if (p.url.includes("pokemoncenter.com")) { storeIcon = "⚡"; storeBadge = `<span style="font-size: 0.75rem; background: #ee1515; color: white; padding: 2px 6px; border-radius: 4px; margin-left: 8px; vertical-align: middle;">Pokémon Center</span>`; }
+    else if (p.url.includes("target.com")) { storeIcon = "🎯"; storeBadge = `<span style="font-size: 0.75rem; background: #cc0000; color: white; padding: 2px 6px; border-radius: 4px; margin-left: 8px; vertical-align: middle;">Target</span>`; }
+    else if (p.url.includes("walmart.com")) { storeIcon = "⭐"; storeBadge = `<span style="font-size: 0.75rem; background: #0071ce; color: white; padding: 2px 6px; border-radius: 4px; margin-left: 8px; vertical-align: middle;">Walmart</span>`; }
+
     return `
     <div style="display: flex; flex-direction: column;">
       <div class="item-card" data-id="${p.id}" style="border-radius: var(--radius) var(--radius) 0 0; border-bottom: none;">
-        <span class="item-icon">ðŸ›ï¸</span>
+        <span class="item-icon">${storeIcon}</span>
         <div class="item-info">
           <div class="item-name">
-            <span id="status-dot-${p.id}" style="font-size:0.8em; margin-right:5px;">${p.is_open ? 'ðŸŸ¢ Open' : 'âšª Closed'}</span>
-            ${esc(p.label || p.url)}
+            <span id="status-dot-${p.id}" style="font-size:0.8em; margin-right:5px;">${p.is_open ? '🟢 Open' : '⚪ Closed'}</span>
+            ${esc(p.label || p.url)} ${storeBadge}
           </div>
-          <div class="item-sub">Profile: ${esc(profileName)} Â· <a href="${esc(p.url)}" target="_blank" style="color:var(--accent);text-decoration:none">Open Link â†—</a></div>
+          <div class="item-sub">Profile: ${esc(profileName)} · <a href="${esc(p.url)}" target="_blank" style="color:var(--accent);text-decoration:none">Open Link ↗</a></div>
         </div>
         <div class="item-actions">
           <span id="status-btn-${p.id}">
             ${p.running 
-              ? `<button class="btn btn-stop btn-sm" onclick="stopProduct('${p.id}')">â¹ Stop</button>`
-              : `<button class="btn btn-start btn-sm" onclick="startProduct('${p.id}')">â–¶ Start</button>`}
+              ? `<button class="btn btn-stop btn-sm" onclick="stopProduct('${p.id}')">⏹ Stop</button>`
+              : `<button class="btn btn-start btn-sm" onclick="startProduct('${p.id}')">▶ Start</button>`}
           </span>
-          <button class="btn btn-outline btn-sm" onclick="toggleProductConfig('${p.id}')">âœï¸ Config</button>
-          <button class="btn btn-primary btn-sm" onclick="openProductUrl('${p.id}')">ðŸš€ Open</button>
-          <button class="btn btn-outline btn-sm" onclick="deleteProduct('${p.id}')">ðŸ—‘</button>
+          <button class="btn btn-outline btn-sm" onclick="toggleProductConfig('${p.id}')">✎ Config</button>
+          <button class="btn btn-primary btn-sm" onclick="openProductUrl('${p.id}')">🚀 Open</button>
+          <button class="btn btn-outline btn-sm" onclick="deleteProduct('${p.id}')">🗑</button>
         </div>
       </div>
       
@@ -250,11 +257,15 @@ function renderProducts() {
       <div id="prod-config-${p.id}" class="product-config-panel hidden">
 
         <div class="product-config-section">
-          <h4>ðŸŽ¯ Bot Settings</h4>
+          <h4>🎯 Bot Settings</h4>
           <div class="form-grid">
             <div class="field">
               <label>Target Qty <span style="font-size:10px;color:var(--muted);">(overrides global)</span></label>
               <input type="number" id="prod-${p.id}-qty" value="${esc(p.target_qty ?? '')}" min="1" max="99" placeholder="Global" />
+            </div>
+            <div class="field">
+              <label>Max Price <span style="font-size:10px;color:var(--muted);">(Target/Walmart)</span></label>
+              <input type="number" step="0.01" id="prod-${p.id}-max_price" value="${esc(p.max_price ?? '')}" min="0" placeholder="e.g. 59.99" />
             </div>
             <div class="field">
               <label>Schedule Start <span style="font-size:10px;color:var(--muted);">(local time)</span></label>
@@ -264,7 +275,7 @@ function renderProducts() {
         </div>
 
         <div class="product-config-section">
-          <h4>ðŸ“¦ Shipping Profile</h4>
+          <h4>📦 Shipping Profile</h4>
           <div class="form-grid">
             <div class="field"><label>First Name</label><input type="text" id="prod-${p.id}-fn" value="${esc(shp.first_name)}" /></div>
             <div class="field"><label>Last Name</label><input type="text" id="prod-${p.id}-ln" value="${esc(shp.last_name)}" /></div>
@@ -277,7 +288,7 @@ function renderProducts() {
         </div>
         
         <div class="product-config-section">
-          <h4>ðŸ’³ Payment Details</h4>
+          <h4>💳 Payment Details</h4>
           <div class="form-grid">
             <div class="field field-full"><label>Card Number</label><input type="text" id="prod-${p.id}-card" value="${esc(pay.card_num)}" maxlength="19" /></div>
             <div class="field"><label>Exp Month</label><input type="text" id="prod-${p.id}-exp_m" value="${esc(pay.exp_month || '08')}" maxlength="2" /></div>
@@ -288,7 +299,7 @@ function renderProducts() {
         
         <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
            <button class="btn btn-outline btn-sm" onclick="toggleProductConfig('${p.id}')">Cancel</button>
-           <button class="btn btn-primary btn-sm" onclick="saveProductConfig('${p.id}')">ðŸ’¾ Save</button>
+           <button class="btn btn-primary btn-sm" onclick="saveProductConfig('${p.id}')">💾 Save</button>
         </div>
       </div>
     </div>`;
@@ -304,9 +315,9 @@ async function openProductUrl(id) {
     product_id: p.id
   });
   if (result?.ok) {
-    showToast("ðŸš€ URL opened in Chrome!", "ok");
+    showToast("🚀 URL opened in Chrome!", "ok");
   } else {
-    showToast("âŒ " + (result?.error || "Failed to open URL"), "error");
+    showToast("❌ " + (result?.error || "Failed to open URL"), "error");
   }
 }
 
@@ -328,13 +339,13 @@ $("addProductBtn").addEventListener("click", async () => {
     $("productUrl").value = "";
     $("productLabel").value = "";
     loadProducts();
-    showToast("âœ… Product added!", "ok");
+    showToast("✅ Product added!", "ok");
   } else {
-    showToast("âŒ " + (result?.error || "Failed"), "error");
+    showToast("❌ " + (result?.error || "Failed"), "error");
   }
 });
 
-// â”€â”€ Settings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ————————————————————————————————————————————————————————————————
 async function loadConfig() {
   const data = await api("/api/pok/config");
   if (!data) return;
@@ -358,29 +369,29 @@ $("saveGlobalConfigBtn").addEventListener("click", async () => {
   msg.classList.remove("hidden", "ok", "error");
   if (result?.ok) {
     msg.className = "save-msg ok";
-    msg.textContent = "âœ… Global settings saved!";
+    msg.textContent = "✅ Global settings saved!";
   } else {
     msg.className = "save-msg error";
-    msg.textContent = "âŒ Failed to save global settings.";
+    msg.textContent = "❌ Failed to save global settings.";
   }
   msg.classList.remove("hidden");
   setTimeout(() => msg.classList.add("hidden"), 3000);
 });
 
-// â”€â”€ Bot Controls â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ————————————————————————————————————————————————————————————————
 $("startBtn").addEventListener("click", async () => {
   await api("/api/pok/commands", "POST", { cmd: "start" });
-  showToast("â–¶ Start command sent!", "ok");
+  showToast("▶ Start command sent!", "ok");
   await refreshStatus();
 });
 
 $("stopBtn").addEventListener("click", async () => {
   await api("/api/pok/commands", "POST", { cmd: "stop" });
-  showToast("â¹ Stop command sent!", "ok");
+  showToast("⏹ Stop command sent!", "ok");
   await refreshStatus();
 });
 
-// â”€â”€ Logs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ————————————————————————————————————————————————————————————————
 let lastLogCount = 0;
 
 async function refreshLogs() {
@@ -411,7 +422,7 @@ $("clearLogsBtn").addEventListener("click", async () => {
   $("logTerminal").innerHTML = "";
 });
 
-// â”€â”€ Toast notifications â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ————————————————————————————————————————————————————————————————
 let toastTimer;
 function showToast(msg, type = "ok") {
   let toast = document.getElementById("_toast");
@@ -447,7 +458,7 @@ function showToast(msg, type = "ok") {
   }, 3000);
 }
 
-// â”€â”€ Escape helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ————————————————————————————————————————————————————————————————
 function esc(str) {
   return String(str ?? "")
     .replace(/&/g, "&amp;")
@@ -456,7 +467,7 @@ function esc(str) {
     .replace(/"/g, "&quot;");
 }
 
-// â”€â”€ Init â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ————————————————————————————————————————————————————————————————
 async function init() {
   initTabs();
   await loadLocalProfiles();
@@ -477,13 +488,13 @@ document.addEventListener("DOMContentLoaded", init);
 async function startProduct(id) {
   await api(`/api/products/${id}/start`, "POST");
   updateProductStatuses();
-  showToast("â–¶ Product start command sent!", "ok");
+  showToast("▶ Product start command sent!", "ok");
 }
 
 async function stopProduct(id) {
   await api(`/api/products/${id}/stop`, "POST");
   updateProductStatuses();
-  showToast("â¹ Product stop command sent!", "ok");
+  showToast("⏹ Product stop command sent!", "ok");
 }
 
 async function updateProductStatuses() {
@@ -493,14 +504,14 @@ async function updateProductStatuses() {
   products.forEach(p => {
     const dot = $("status-dot-" + p.id);
     if (dot) {
-      dot.textContent = p.is_open ? "ðŸŸ¢ Open" : "âšª Closed";
+      dot.textContent = p.is_open ? "🟢 Open" : "⚪ Closed";
     }
     const btn = $("status-btn-" + p.id);
     if (btn) {
       if (p.running) {
-        btn.innerHTML = `<button class="btn btn-stop btn-sm" onclick="stopProduct('${p.id}')">â¹ Stop</button>`;
+        btn.innerHTML = `<button class="btn btn-stop btn-sm" onclick="stopProduct('${p.id}')">⏹ Stop</button>`;
       } else {
-        btn.innerHTML = `<button class="btn btn-start btn-sm" onclick="startProduct('${p.id}')">â–¶ Start</button>`;
+        btn.innerHTML = `<button class="btn btn-start btn-sm" onclick="startProduct('${p.id}')">▶ Start</button>`;
       }
     }
   });

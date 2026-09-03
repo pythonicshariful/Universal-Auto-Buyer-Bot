@@ -173,6 +173,8 @@ def api_get_config(url: str = ""):
             cfg["payment"] = matched_product["payment"]
         if matched_product.get("target_qty") not in (None, ""):
             cfg["target_qty"] = matched_product["target_qty"]
+        if matched_product.get("max_price") not in (None, ""):
+            cfg["max_price"] = matched_product["max_price"]
                 
     return cfg
 
@@ -382,6 +384,7 @@ async def api_add_product(request: Request):
     shipping   = data.get("shipping", {})
     payment    = data.get("payment", {})
     target_qty = data.get("target_qty")
+    max_price  = data.get("max_price")
 
     if not url:
         return {"ok": False, "error": "url required"}
@@ -394,7 +397,8 @@ async def api_add_product(request: Request):
         "profile_id": profile_id,
         "shipping": shipping,
         "payment": payment,
-        "target_qty": target_qty
+        "target_qty": target_qty,
+        "max_price": max_price
     }
     products.append(entry)
     _save_json(PRODUCTS_FILE, products)
@@ -423,6 +427,8 @@ async def api_update_product(product_id: str, request: Request):
         product["payment"] = data["payment"]
     if "target_qty" in data:
         product["target_qty"] = data["target_qty"]
+    if "max_price" in data:
+        product["max_price"] = data["max_price"]
         
     _save_json(PRODUCTS_FILE, products)
     return {"ok": True, "product": product}
