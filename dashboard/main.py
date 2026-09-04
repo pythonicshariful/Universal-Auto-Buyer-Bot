@@ -112,6 +112,10 @@ def verify_basic_auth(credentials: HTTPBasicCredentials = Depends(security_basic
     return credentials.username
 
 def verify_api_key(api_key: str = Depends(api_key_header)):
+    bot_api_key = os.getenv("BOT_API_KEY")
+    if bot_api_key:
+        if not api_key or not secrets.compare_digest(api_key, bot_api_key):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API Key")
     return api_key
 
 # Safe migrations
@@ -134,6 +138,21 @@ try:
 except Exception:
     pass
 
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE products ADD COLUMN max_price FLOAT"))
+except Exception:
+    pass
+
+try:
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE settings ADD COLUMN cvv TEXT"))
+        conn.execute(text("ALTER TABLE settings ADD COLUMN target_bot_running BOOLEAN"))
+        conn.execute(text("ALTER TABLE settings ADD COLUMN target_qty INTEGER"))
+        conn.execute(text("ALTER TABLE settings ADD COLUMN target_max_price FLOAT"))
+except Exception:
+    pass
+
 def get_db():
     db = SessionLocal()
     try:
@@ -149,7 +168,11 @@ def get_settings(db: Session):
             min_delay=100,
             max_delay=200,
             headless=True,
-            proxies=""
+            proxies="",
+            cvv="",
+            target_bot_running=True,
+            target_qty=1,
+            target_max_price=0.0
         )
         db.add(settings)
         db.commit()
@@ -212,10 +235,26 @@ def read_dashboard(request: Request, db: Session = Depends(get_db), user: str = 
     return response
 
 @app.post("/add_product")
-def add_product(request: Request, url: str = Form(...), db: Session = Depends(get_db), user: str = Depends(verify_basic_auth), _: None = Depends(verify_csrf)):
+def add_product(request: Request, url: str = Form(...), quantity: int = Form(1), max_price: float = Form(0.0), db: Session = Depends(get_db), user: str = Depends(verify_basic_auth), _: None = Depends(verify_csrf)):
     if not db.query(Product).filter(Product.url == url).first():
-        new_product = Product(url=url)
+        new_product = Product(url=url, quantity=quantity, max_price=max_price)
+        
+        # Try to extract TCIN immediately
+        import re
+        m = re.search(r'/-/A-([0-9]+)', url) or re.search(r'[?&]tcin=([0-9]+)', url)
+        if m:
+            new_product.tcin = m.group(1)
+            
         db.add(new_product)
+        db.commit()
+    return RedirectResponse(url="/", status_code=303)
+
+@app.post("/update_product/{product_id}")
+def update_product(request: Request, product_id: int, quantity: int = Form(1), max_price: float = Form(0.0), db: Session = Depends(get_db), user: str = Depends(verify_basic_auth), _: None = Depends(verify_csrf)):
+    p = db.query(Product).filter(Product.id == product_id).first()
+    if p:
+        p.quantity = quantity
+        p.max_price = max_price
         db.commit()
     return RedirectResponse(url="/", status_code=303)
 
@@ -256,6 +295,10 @@ def update_settings(
     max_delay: int = Form(200),
     headless: bool = Form(False),
     proxies: str = Form(""),
+    cvv: str = Form(""),
+    target_bot_running: bool = Form(False),
+    target_qty: int = Form(1),
+    target_max_price: float = Form(0.0),
     db: Session = Depends(get_db),
     user: str = Depends(verify_basic_auth),
     _: None = Depends(verify_csrf)
@@ -269,8 +312,61 @@ def update_settings(
     settings.min_delay = min_delay
     settings.max_delay = max_delay
     settings.headless = headless
+    if cvv and "***" not in cvv:
+        settings.cvv = encrypt_val(cvv)
+    settings.target_bot_running = target_bot_running
+    settings.target_qty = target_qty
+    settings.target_max_price = target_max_price
     db.commit()
     return RedirectResponse(url="/", status_code=303)
+
+@app.post("/api/target/toggle_bot")
+def toggle_target_bot(request: Request, db: Session = Depends(get_db)):
+    settings = get_settings(db)
+    settings.target_bot_running = not (settings.target_bot_running if settings.target_bot_running is not None else False)
+    db.commit()
+    return {"bot_running": settings.target_bot_running}
+
+@app.get("/api/target/config")
+def get_target_bot_config(url: str = "", db: Session = Depends(get_db)):
+    settings = get_settings(db)
+    products = db.query(Product).all()
+    
+    prod_list = []
+    matched_product = None
+    normalized_url = url.split("?")[0].rstrip("/") if url else ""
+    
+    for p in products:
+        p_dict = {
+            "id": p.id,
+            "url": p.url,
+            "name": p.name,
+            "tcin": p.tcin,
+            "price": p.price,
+            "in_stock": p.in_stock,
+            "quantity": p.quantity or settings.target_qty or 1,
+            "max_price": p.max_price if p.max_price is not None else (settings.target_max_price or 0.0),
+            "atc_url": p.atc_url
+        }
+        prod_list.append(p_dict)
+        
+        if url:
+            if (p.url and p.url.split("?")[0].rstrip("/") == normalized_url) or (p.tcin and p.tcin in url):
+                matched_product = p_dict
+                
+    return {
+        "bot_running": settings.target_bot_running if settings.target_bot_running is not None else True,
+        "settings": {
+            "min_delay": settings.min_delay,
+            "max_delay": settings.max_delay,
+            "cvv": decrypt_val(settings.cvv) or "123",
+            "default_qty": settings.target_qty or 1,
+            "default_max_price": settings.target_max_price or 0.0
+        },
+        "products": prod_list,
+        "matched_product": matched_product
+    }
+
 
 # --- API Endpoints ---
 

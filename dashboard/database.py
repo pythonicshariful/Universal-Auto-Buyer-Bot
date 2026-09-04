@@ -35,6 +35,7 @@ class Product(Base):
     # New global checkout features
     profile_id = Column(Integer, ForeignKey("chrome_profiles.id"), nullable=True)
     quantity = Column(Integer, nullable=True)
+    max_price = Column(Float, nullable=True)
     scheduled_time = Column(String, nullable=True)
     
     events = relationship("ChangeEvent", back_populates="product", cascade="all, delete-orphan")
@@ -60,6 +61,12 @@ class Settings(Base):
     max_delay = Column(Integer, default=200)
     headless = Column(Boolean, default=True)
     proxies = Column(String, nullable=True)
+    
+    # Target Checkout Settings
+    cvv = Column(String, nullable=True)
+    target_bot_running = Column(Boolean, default=True)
+    target_qty = Column(Integer, default=1)
+    target_max_price = Column(Float, default=0.0)
 
 class WalmartProduct(Base):
     __tablename__ = "walmart_products"

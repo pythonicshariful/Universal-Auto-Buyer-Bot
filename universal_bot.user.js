@@ -39,6 +39,727 @@
     }
 
 
+    // =========================================================================
+    // UNIVERSAL FLOATING HUD & LIVE CONSOLE ENGINE
+    // =========================================================================
+    class UniversalHUD {
+        constructor(options = {}) {
+            this.storeName = options.storeName || 'Universal Bot';
+            this.storeBadgeClass = options.storeBadgeClass || 'ub-badge-target';
+            this.isRunning = !!options.isRunning;
+            this.config = Object.assign({
+                target_qty: 1,
+                max_price: 0,
+                cvv: '',
+                min_delay: 3,
+                max_delay: 15
+            }, options.config || {});
+            
+            this.showDelays = !!options.showDelays;
+            this.delayInSeconds = !!options.delayInSeconds;
+            this.extraStoreHtml = options.extraStoreHtml || '';
+            this.onStart = options.onStart || (() => {});
+            this.onStop = options.onStop || (() => {});
+            this.onConfigChange = options.onConfigChange || (() => {});
+            this.logCount = 0;
+            this.isMinimized = localStorage.getItem('ub_hud_minimized') === 'true';
+
+            this.injectStyles();
+            this.render();
+            this.initDrag();
+            this.applySavedPosition();
+            this.updateStateUI();
+        }
+
+        injectStyles() {
+            if (document.getElementById('ub-hud-styles')) return;
+            const style = document.createElement('style');
+            style.id = 'ub-hud-styles';
+            style.innerHTML = `
+                #universal-bot-hud {
+                    position: fixed;
+                    bottom: 20px;
+                    right: 20px;
+                    width: 380px;
+                    max-width: calc(100vw - 32px);
+                    background: rgba(15, 23, 42, 0.94);
+                    backdrop-filter: blur(16px);
+                    -webkit-backdrop-filter: blur(16px);
+                    color: #f8fafc;
+                    border-radius: 14px;
+                    border: 1px solid rgba(255, 255, 255, 0.14);
+                    box-shadow: 0 20px 45px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.06);
+                    z-index: 2147483647;
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
+                    font-size: 13px;
+                    user-select: none;
+                    box-sizing: border-box;
+                    transition: box-shadow 0.2s ease, transform 0.15s ease;
+                }
+                #universal-bot-hud * {
+                    box-sizing: border-box;
+                }
+                .ub-hud-header {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    padding: 10px 14px;
+                    background: rgba(255, 255, 255, 0.05);
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+                    border-radius: 14px 14px 0 0;
+                    cursor: grab;
+                }
+                .ub-hud-header:active {
+                    cursor: grabbing;
+                }
+                .ub-hud-title-wrap {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                }
+                .ub-status-dot {
+                    width: 10px;
+                    height: 10px;
+                    border-radius: 50%;
+                    flex-shrink: 0;
+                    transition: background 0.3s, box-shadow 0.3s;
+                }
+                .ub-status-dot.running {
+                    background: #10b981;
+                    box-shadow: 0 0 10px #10b981;
+                    animation: ubPulse 2s infinite;
+                }
+                .ub-status-dot.stopped {
+                    background: #ef4444;
+                    box-shadow: 0 0 6px rgba(239, 68, 68, 0.5);
+                }
+                @keyframes ubPulse {
+                    0% { opacity: 0.7; transform: scale(0.9); }
+                    50% { opacity: 1; transform: scale(1.15); }
+                    100% { opacity: 0.7; transform: scale(0.9); }
+                }
+                .ub-hud-title {
+                    font-weight: 700;
+                    font-size: 11px;
+                    letter-spacing: 0.5px;
+                    color: #e2e8f0;
+                }
+                .ub-badge-store {
+                    font-size: 10px;
+                    font-weight: 700;
+                    padding: 2px 7px;
+                    border-radius: 6px;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                }
+                .ub-badge-target { background: rgba(239, 68, 68, 0.25); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.35); }
+                .ub-badge-walmart { background: rgba(2, 132, 199, 0.25); color: #7dd3fc; border: 1px solid rgba(2, 132, 199, 0.35); }
+                .ub-badge-pokemon { background: rgba(245, 158, 11, 0.25); color: #fde68a; border: 1px solid rgba(245, 158, 11, 0.35); }
+                .ub-hud-actions {
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                }
+                .ub-hud-icon-btn {
+                    background: transparent;
+                    border: none;
+                    color: #94a3b8;
+                    width: 24px;
+                    height: 24px;
+                    border-radius: 6px;
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 12px;
+                    transition: background 0.15s, color 0.15s;
+                }
+                .ub-hud-icon-btn:hover {
+                    background: rgba(255, 255, 255, 0.1);
+                    color: #f8fafc;
+                }
+                .ub-hud-body {
+                    padding: 12px 14px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 10px;
+                    max-height: 80vh;
+                    overflow-y: auto;
+                }
+                #universal-bot-hud.ub-minimized .ub-hud-body {
+                    display: none;
+                }
+                #universal-bot-hud.ub-minimized {
+                    width: auto;
+                    border-radius: 20px;
+                }
+                #universal-bot-hud.ub-minimized .ub-hud-header {
+                    border-radius: 20px;
+                    border-bottom: none;
+                    padding: 8px 12px;
+                }
+                .ub-btn-group {
+                    display: flex;
+                    gap: 8px;
+                }
+                .ub-btn {
+                    flex: 1;
+                    padding: 8px 12px;
+                    border-radius: 8px;
+                    border: none;
+                    font-weight: 700;
+                    font-size: 13px;
+                    cursor: pointer;
+                    transition: transform 0.1s, opacity 0.2s, filter 0.2s;
+                    font-family: inherit;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 6px;
+                }
+                .ub-btn-start {
+                    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+                    color: #ffffff;
+                    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);
+                }
+                .ub-btn-stop {
+                    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+                    color: #ffffff;
+                    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.25);
+                }
+                .ub-btn:active {
+                    transform: scale(0.98);
+                }
+                .ub-btn:disabled {
+                    opacity: 0.35;
+                    cursor: not-allowed;
+                    box-shadow: none;
+                }
+                .ub-inputs-grid {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(75px, 1fr));
+                    gap: 8px;
+                    background: rgba(255, 255, 255, 0.03);
+                    padding: 10px;
+                    border-radius: 8px;
+                    border: 1px solid rgba(255, 255, 255, 0.05);
+                }
+                .ub-field-col {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 4px;
+                }
+                .ub-field-label {
+                    font-size: 10px;
+                    font-weight: 600;
+                    color: #94a3b8;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                }
+                .ub-input {
+                    background: rgba(0, 0, 0, 0.35);
+                    border: 1px solid rgba(255, 255, 255, 0.12);
+                    border-radius: 6px;
+                    padding: 6px 8px;
+                    color: #ffffff;
+                    font-family: inherit;
+                    font-size: 12px;
+                    outline: none;
+                    transition: border-color 0.2s;
+                    width: 100%;
+                }
+                .ub-input:focus {
+                    border-color: #38bdf8;
+                }
+                .ub-console-header {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    margin-top: 4px;
+                }
+                .ub-console-title {
+                    font-size: 10px;
+                    font-weight: 700;
+                    letter-spacing: 0.8px;
+                    text-transform: uppercase;
+                    color: #64748b;
+                }
+                .ub-console-tools {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                }
+                .ub-log-badge {
+                    font-size: 10px;
+                    color: #94a3b8;
+                    background: rgba(255, 255, 255, 0.08);
+                    padding: 1px 6px;
+                    border-radius: 10px;
+                    font-family: monospace;
+                }
+                .ub-clear-btn {
+                    font-size: 10px;
+                    color: #64748b;
+                    background: transparent;
+                    border: none;
+                    cursor: pointer;
+                    padding: 2px 4px;
+                    border-radius: 4px;
+                }
+                .ub-clear-btn:hover {
+                    color: #cbd5e1;
+                    background: rgba(255, 255, 255, 0.06);
+                }
+                .ub-console-box {
+                    background: rgba(0, 0, 0, 0.6);
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    border-radius: 8px;
+                    padding: 10px;
+                    height: 160px;
+                    overflow-y: auto;
+                    font-family: 'Fira Code', Consolas, Monaco, 'Courier New', monospace;
+                    font-size: 11px;
+                    line-height: 1.5;
+                    user-select: text;
+                    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.4);
+                }
+                .ub-console-line {
+                    margin-bottom: 4px;
+                    word-break: break-word;
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+                    padding-bottom: 2px;
+                }
+                .ub-log-time {
+                    color: #64748b;
+                    font-size: 10px;
+                    margin-right: 4px;
+                }
+                .ub-log-info    { color: #38bdf8; }
+                .ub-log-success { color: #34d399; font-weight: 600; }
+                .ub-log-warn    { color: #fbbf24; }
+                .ub-log-error   { color: #f87171; font-weight: 600; }
+            `;
+            document.head.appendChild(style);
+        }
+
+        render() {
+            if (!document.body) {
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', () => this.render());
+                } else {
+                    setTimeout(() => this.render(), 100);
+                }
+                return;
+            }
+
+            let container = document.getElementById('universal-bot-hud');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'universal-bot-hud';
+                document.body.appendChild(container);
+            }
+            this.hudEl = container;
+            if (this.isMinimized) {
+                this.hudEl.classList.add('ub-minimized');
+            }
+
+            const delayUnit = this.delayInSeconds ? 's' : 'ms';
+            const delaysHtml = this.showDelays ? `
+                <div class="ub-field-col">
+                    <label class="ub-field-label">Min Delay (${delayUnit})</label>
+                    <input type="number" id="botMinDelay" class="ub-input ub-input-mindelay" value="${this.config.min_delay}" min="0" />
+                </div>
+                <div class="ub-field-col">
+                    <label class="ub-field-label">Max Delay (${delayUnit})</label>
+                    <input type="number" id="botMaxDelay" class="ub-input ub-input-maxdelay" value="${this.config.max_delay}" min="0" />
+                </div>
+            ` : '';
+
+            const priceHtml = (typeof this.config.max_price !== 'undefined') ? `
+                <div class="ub-field-col">
+                    <label class="ub-field-label">Max Price ($)</label>
+                    <input type="number" id="ubMaxPrice" class="ub-input" step="0.01" min="0" value="${this.config.max_price || 0}" />
+                </div>
+            ` : '';
+
+            const cvvHtml = (typeof this.config.cvv !== 'undefined') ? `
+                <div class="ub-field-col">
+                    <label class="ub-field-label">CVV</label>
+                    <div style="position:relative; display:flex; align-items:center;">
+                        <input type="password" id="ubCvv" class="ub-input" maxlength="4" placeholder="***" value="${this.config.cvv || ''}" style="padding-right:24px;" />
+                        <span id="ubToggleCvv" style="position:absolute; right:6px; cursor:pointer; font-size:11px; color:#64748b; user-select:none;">👁️</span>
+                    </div>
+                </div>
+            ` : '';
+
+            this.hudEl.innerHTML = `
+                <div class="ub-hud-header">
+                    <div class="ub-hud-title-wrap">
+                        <div id="ubStatusDot" class="ub-status-dot ${this.isRunning ? 'running' : 'stopped'}"></div>
+                        <span class="ub-badge-store ${this.storeBadgeClass}">${this.storeName}</span>
+                        <span id="ubStatusText" class="ub-hud-title">${this.isRunning ? 'RUNNING' : 'STOPPED'}</span>
+                    </div>
+                    <div class="ub-hud-actions">
+                        <button id="ubMinBtn" class="ub-hud-icon-btn" title="${this.isMinimized ? 'Expand' : 'Minimize'}">${this.isMinimized ? '▢' : '—'}</button>
+                    </div>
+                </div>
+                <div class="ub-hud-body">
+                    ${this.storeName === 'Target' ? '' : `
+                    <div class="ub-btn-group">
+                        <button id="botStartBtn" class="ub-btn ub-btn-start">▶ START</button>
+                        <button id="botStopBtn" class="ub-btn ub-btn-stop">⏹ STOP</button>
+                    </div>
+
+                    <div class="ub-inputs-grid">
+                        <div class="ub-field-col">
+                            <label class="ub-field-label">Quantity</label>
+                            <input type="number" id="botTargetQty" class="ub-input" min="1" max="99" value="${this.config.target_qty || 1}" />
+                        </div>
+                        ${priceHtml}
+                        ${cvvHtml}
+                        ${delaysHtml}
+                    </div>
+                    `}
+
+                    <div id="ubStoreSlot">
+                        ${this.extraStoreHtml}
+                    </div>
+
+                    <div class="ub-console-header">
+                        <span class="ub-console-title">Live Terminal Activity</span>
+                        <div class="ub-console-tools">
+                            <span id="ubLogCount" class="ub-log-badge">0 logs</span>
+                            <button id="ubClearLogs" class="ub-clear-btn" title="Clear terminal logs">Clear</button>
+                        </div>
+                    </div>
+                    <div id="ubConsole" class="ub-console-box"></div>
+                </div>
+            `;
+
+            // Cache DOM elements
+            this.statusDot = this.hudEl.querySelector('#ubStatusDot');
+            this.statusText = this.hudEl.querySelector('#ubStatusText');
+            this.minBtn = this.hudEl.querySelector('#ubMinBtn');
+            this.startBtn = this.hudEl.querySelector('#botStartBtn');
+            this.stopBtn = this.hudEl.querySelector('#botStopBtn');
+            this.qtyInput = this.hudEl.querySelector('#botTargetQty');
+            this.maxPriceInput = this.hudEl.querySelector('#ubMaxPrice');
+            this.cvvInput = this.hudEl.querySelector('#ubCvv');
+            this.minDelayInput = this.hudEl.querySelector('#botMinDelay');
+            this.maxDelayInput = this.hudEl.querySelector('#botMaxDelay');
+            this.consoleEl = this.hudEl.querySelector('#ubConsole');
+            this.logCountEl = this.hudEl.querySelector('#ubLogCount');
+            this.clearBtn = this.hudEl.querySelector('#ubClearLogs');
+
+            // Wire up event listeners
+            this.minBtn.addEventListener('click', () => this.toggleMinimize());
+            if (this.startBtn) {
+                this.startBtn.addEventListener('click', () => {
+                    this.setRunning(true);
+                    this.onStart();
+                });
+            }
+
+            if (this.stopBtn) {
+                this.stopBtn.addEventListener('click', () => {
+                    this.setRunning(false);
+                    this.onStop();
+                });
+            }
+
+            if (this.clearBtn) {
+                this.clearBtn.addEventListener('click', () => {
+                    if (this.consoleEl) this.consoleEl.innerHTML = '';
+                    this.logCount = 0;
+                    if (this.logCountEl) this.logCountEl.innerText = '0 logs';
+                });
+            }
+
+            const toggleCvv = this.hudEl.querySelector('#ubToggleCvv');
+            if (toggleCvv && this.cvvInput) {
+                toggleCvv.addEventListener('click', () => {
+                    this.cvvInput.type = (this.cvvInput.type === 'password') ? 'text' : 'password';
+                });
+            }
+
+            if (this.qtyInput) {
+                this.qtyInput.addEventListener('input', (e) => {
+                    const v = parseInt(e.target.value, 10) || 1;
+                    this.config.target_qty = v;
+                    this.onConfigChange('target_qty', v);
+                });
+            }
+
+            if (this.maxPriceInput) {
+                this.maxPriceInput.addEventListener('input', (e) => {
+                    const v = parseFloat(e.target.value) || 0;
+                    this.config.max_price = v;
+                    this.onConfigChange('max_price', v);
+                });
+            }
+
+            if (this.cvvInput) {
+                this.cvvInput.addEventListener('input', (e) => {
+                    const v = e.target.value.trim();
+                    this.config.cvv = v;
+                    this.onConfigChange('cvv', v);
+                });
+            }
+
+            if (this.minDelayInput) {
+                this.minDelayInput.addEventListener('input', (e) => {
+                    const v = parseFloat(e.target.value) || 0;
+                    this.config.min_delay = v;
+                    this.onConfigChange('min_delay', v);
+                });
+            }
+
+            if (this.maxDelayInput) {
+                this.maxDelayInput.addEventListener('input', (e) => {
+                    const v = parseFloat(e.target.value) || 0;
+                    this.config.max_delay = v;
+                    this.onConfigChange('max_delay', v);
+                });
+            }
+        }
+
+        setRunning(running) {
+            this.isRunning = !!running;
+            this.updateStateUI();
+        }
+
+        updateStateUI() {
+            if (this.statusDot) {
+                this.statusDot.className = 'ub-status-dot ' + (this.isRunning ? 'running' : 'stopped');
+            }
+            if (this.statusText) {
+                this.statusText.innerText = this.isRunning ? 'RUNNING' : 'STOPPED';
+                this.statusText.style.color = this.isRunning ? '#34d399' : '#f87171';
+            }
+            if (this.startBtn) {
+                this.startBtn.disabled = this.isRunning;
+                this.startBtn.style.opacity = this.isRunning ? '0.4' : '1';
+            }
+            if (this.stopBtn) {
+                this.stopBtn.disabled = !this.isRunning;
+                this.stopBtn.style.opacity = !this.isRunning ? '0.4' : '1';
+            }
+        }
+
+        syncConfig(newConfig = {}) {
+            if (newConfig.target_qty && this.qtyInput && document.activeElement !== this.qtyInput) {
+                this.qtyInput.value = newConfig.target_qty;
+                this.config.target_qty = newConfig.target_qty;
+            }
+            if (typeof newConfig.max_price !== 'undefined' && this.maxPriceInput && document.activeElement !== this.maxPriceInput) {
+                this.maxPriceInput.value = newConfig.max_price;
+                this.config.max_price = newConfig.max_price;
+            }
+            if (typeof newConfig.cvv !== 'undefined' && this.cvvInput && document.activeElement !== this.cvvInput) {
+                this.cvvInput.value = newConfig.cvv;
+                this.config.cvv = newConfig.cvv;
+            }
+            if (typeof newConfig.min_delay !== 'undefined' && this.minDelayInput && document.activeElement !== this.minDelayInput) {
+                this.minDelayInput.value = newConfig.min_delay;
+                this.config.min_delay = newConfig.min_delay;
+            }
+            if (typeof newConfig.max_delay !== 'undefined' && this.maxDelayInput && document.activeElement !== this.maxDelayInput) {
+                this.maxDelayInput.value = newConfig.max_delay;
+                this.config.max_delay = newConfig.max_delay;
+            }
+        }
+
+        initDrag() {
+            if (!this.hudEl) return;
+            const header = this.hudEl.querySelector('.ub-hud-header');
+            if (!header) return;
+
+            let isDragging = false;
+            let startX = 0, startY = 0;
+            let initialLeft = 0, initialTop = 0;
+
+            header.addEventListener('mousedown', (e) => {
+                if (e.target.closest('.ub-hud-icon-btn') || e.target.closest('button') || e.target.closest('input')) return;
+
+                isDragging = true;
+                const rect = this.hudEl.getBoundingClientRect();
+                initialLeft = rect.left;
+                initialTop = rect.top;
+                startX = e.clientX;
+                startY = e.clientY;
+
+                this.hudEl.style.left = initialLeft + 'px';
+                this.hudEl.style.top = initialTop + 'px';
+                this.hudEl.style.right = 'auto';
+                this.hudEl.style.bottom = 'auto';
+
+                const onMouseMove = (me) => {
+                    if (!isDragging) return;
+                    const deltaX = me.clientX - startX;
+                    const deltaY = me.clientY - startY;
+
+                    let newLeft = initialLeft + deltaX;
+                    let newTop = initialTop + deltaY;
+
+                    const maxLeft = Math.max(0, window.innerWidth - this.hudEl.offsetWidth);
+                    const maxTop = Math.max(0, window.innerHeight - this.hudEl.offsetHeight);
+
+                    newLeft = Math.max(0, Math.min(maxLeft, newLeft));
+                    newTop = Math.max(0, Math.min(maxTop, newTop));
+
+                    this.hudEl.style.left = newLeft + 'px';
+                    this.hudEl.style.top = newTop + 'px';
+                };
+
+                const onMouseUp = () => {
+                    if (!isDragging) return;
+                    isDragging = false;
+                    window.removeEventListener('mousemove', onMouseMove);
+                    window.removeEventListener('mouseup', onMouseUp);
+
+                    try {
+                        const saved = {
+                            left: parseInt(this.hudEl.style.left, 10),
+                            top: parseInt(this.hudEl.style.top, 10)
+                        };
+                        localStorage.setItem('ub_hud_pos', JSON.stringify(saved));
+                    } catch (err) {}
+                };
+
+                window.addEventListener('mousemove', onMouseMove);
+                window.addEventListener('mouseup', onMouseUp);
+            });
+        }
+
+        applySavedPosition() {
+            if (!this.hudEl) return;
+            try {
+                const raw = localStorage.getItem('ub_hud_pos');
+                if (raw) {
+                    const pos = JSON.parse(raw);
+                    if (typeof pos.left === 'number' && typeof pos.top === 'number') {
+                        const maxLeft = Math.max(0, window.innerWidth - 200);
+                        const maxTop = Math.max(0, window.innerHeight - 60);
+                        const left = Math.max(0, Math.min(maxLeft, pos.left));
+                        const top = Math.max(0, Math.min(maxTop, pos.top));
+
+                        this.hudEl.style.left = left + 'px';
+                        this.hudEl.style.top = top + 'px';
+                        this.hudEl.style.right = 'auto';
+                        this.hudEl.style.bottom = 'auto';
+                    }
+                }
+            } catch (e) {}
+        }
+
+        toggleMinimize() {
+            this.isMinimized = !this.isMinimized;
+            if (this.isMinimized) {
+                this.hudEl.classList.add('ub-minimized');
+                if (this.minBtn) {
+                    this.minBtn.innerText = '▢';
+                    this.minBtn.title = 'Expand';
+                }
+            } else {
+                this.hudEl.classList.remove('ub-minimized');
+                if (this.minBtn) {
+                    this.minBtn.innerText = '—';
+                    this.minBtn.title = 'Minimize';
+                }
+            }
+            try {
+                localStorage.setItem('ub_hud_minimized', this.isMinimized ? 'true' : 'false');
+            } catch (e) {}
+        }
+
+        log(message, type = 'info') {
+            if (!this.consoleEl) return;
+            const time = new Date().toLocaleTimeString();
+            const line = document.createElement('div');
+            line.className = 'ub-console-line';
+
+            let colorCls = 'ub-log-info';
+            let label = 'INFO';
+            if (type === 'success') { colorCls = 'ub-log-success'; label = 'SUCCESS'; }
+            else if (type === 'warn' || type === 'warning') { colorCls = 'ub-log-warn'; label = 'WARN'; }
+            else if (type === 'error') { colorCls = 'ub-log-error'; label = 'ERROR'; }
+
+            line.innerHTML = `<span class="ub-log-time">[${time}]</span> <span class="${colorCls}">[${label}]</span> ${this.escapeHtml(String(message))}`;
+            this.consoleEl.appendChild(line);
+
+            while (this.consoleEl.childNodes.length > 300) {
+                this.consoleEl.removeChild(this.consoleEl.firstChild);
+            }
+
+            this.logCount++;
+            if (this.logCountEl) {
+                this.logCountEl.innerText = `${this.logCount} logs`;
+            }
+
+            this.consoleEl.scrollTop = this.consoleEl.scrollHeight;
+        }
+
+        escapeHtml(str) {
+            return str
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        interceptConsole(tag = '') {
+            const origLog = console.log;
+            const origWarn = console.warn;
+            const origError = console.error;
+            const origInfo = console.info;
+            const self = this;
+
+            function formatArgs(args) {
+                return args.map(a => {
+                    if (typeof a === 'object' && a !== null) {
+                        try { return JSON.stringify(a); } catch (e) { return String(a); }
+                    }
+                    return String(a);
+                }).join(' ');
+            }
+
+            console.log = function(...args) {
+                origLog.apply(console, args);
+                const str = formatArgs(args);
+                let lvl = 'info';
+                const lower = str.toLowerCase();
+                if (lower.includes('success') || lower.includes('clicked') || lower.includes('restock detected') || lower.includes('placed order')) {
+                    lvl = 'success';
+                } else if (lower.includes('warn') || lower.includes('retry') || lower.includes('waiting')) {
+                    lvl = 'warn';
+                } else if (lower.includes('error') || lower.includes('failed')) {
+                    lvl = 'error';
+                }
+                self.log(tag && !str.startsWith(`[${tag}]`) ? `[${tag}] ${str}` : str, lvl);
+            };
+
+            console.info = function(...args) {
+                origInfo.apply(console, args);
+                const str = formatArgs(args);
+                self.log(tag && !str.startsWith(`[${tag}]`) ? `[${tag}] ${str}` : str, 'info');
+            };
+
+            console.warn = function(...args) {
+                origWarn.apply(console, args);
+                const str = formatArgs(args);
+                self.log(tag && !str.startsWith(`[${tag}]`) ? `[${tag}] ${str}` : str, 'warn');
+            };
+
+            console.error = function(...args) {
+                origError.apply(console, args);
+                const str = formatArgs(args);
+                self.log(tag && !str.startsWith(`[${tag}]`) ? `[${tag}] ${str}` : str, 'error');
+            };
+        }
+    }
+
+
 function runPokemonBot() {
 
     
@@ -582,6 +1303,7 @@ function runPokemonBot() {
     // =========================================================================
     let uiContainer = null;
     let consoleContainer = null;
+    let hud = null;
     let lastUrl = '';
     let isBotRunning = false;
     let botActionInProgress = false;
@@ -613,25 +1335,9 @@ function runPokemonBot() {
 
     // Function to append logs to our custom UI console
     function logToConsole(message, type = 'info') {
-        if (!consoleContainer) return;
-        
-        const time = new Date().toLocaleTimeString();
-        let color = '#ccc';
-        if (type === 'success') color = '#28a745';
-        if (type === 'error') color = '#dc3545';
-        if (type === 'warning') color = '#ffcc00';
-        if (type === 'info') color = '#00d2ff';
-        
-        const logLine = document.createElement('div');
-        logLine.style.color = color;
-        logLine.style.marginBottom = '6px';
-        logLine.style.borderBottom = '1px solid rgba(255,255,255,0.1)';
-        logLine.style.paddingBottom = '4px';
-        logLine.innerHTML = `<span style="color: #666; font-size: 11px;">[${time}]</span> ${message}`;
-        
-        consoleContainer.appendChild(logLine);
-        consoleContainer.scrollTop = consoleContainer.scrollHeight;
-        
+        if (hud) {
+            hud.log(message, type);
+        }
         try {
             gmFetch('http://localhost:8000/api/pok/log', {
                 method: 'POST',
@@ -643,112 +1349,99 @@ function runPokemonBot() {
 
     // Function to initialize the UI
     function initUI() {
-        if (!uiContainer) {
-            uiContainer = document.createElement('div');
-            uiContainer.id = 'pokemon-center-script-ui';
-            uiContainer.style.position = 'fixed';
-            uiContainer.style.bottom = '20px';
-            uiContainer.style.right = '20px';
-            uiContainer.style.background = 'rgba(15, 23, 42, 0.75)';
-            uiContainer.style.backdropFilter = 'blur(12px)';
-            uiContainer.style.webkitBackdropFilter = 'blur(12px)';
-            uiContainer.style.color = '#f8fafc';
-            uiContainer.style.padding = '20px';
-            uiContainer.style.borderRadius = '16px';
-            uiContainer.style.zIndex = '999999';
-            uiContainer.style.fontFamily = '"Inter", system-ui, -apple-system, sans-serif';
-            uiContainer.style.fontSize = '14px';
-            uiContainer.style.boxShadow = '0 20px 40px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.1)';
-            uiContainer.style.pointerEvents = 'auto'; 
-            uiContainer.style.width = '380px';
-            uiContainer.style.border = '1px solid rgba(255,255,255,0.1)';
-            uiContainer.style.maxHeight = '90vh';
-            uiContainer.style.overflowY = 'auto';
-            uiContainer.style.transition = 'all 0.3s ease';
-            
-            document.body.appendChild(uiContainer);
-        }
-        
-        uiContainer.innerHTML = `
-            <div id="botPageType" style="margin-bottom: 12px; font-size: 15px; font-weight: bold; color: #fff;">🌐 Initializing...</div>
-            
-            <!-- Controls -->
-            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 16px; background: rgba(255,255,255,0.05); padding: 12px; border-radius: 10px; flex-wrap: wrap; border: 1px solid rgba(255,255,255,0.05);">
-                <div style="flex: 1; min-width: 80px;">
-                    <label style="font-size: 11px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Target Qty</label>
-                    <input type="number" id="botTargetQty" value="1" min="1" max="99" style="width: 100%; margin-top: 4px; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); outline: none; transition: 0.2s;" />
-                </div>
-                <div style="flex: 1; min-width: 80px;">
-                    <label style="font-size: 11px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Min Delay (s)</label>
-                    <input type="number" id="botMinDelay" value="5" min="1" max="300" style="width: 100%; margin-top: 4px; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); outline: none; transition: 0.2s;" />
-                </div>
-                <div style="flex: 1; min-width: 80px;">
-                    <label style="font-size: 11px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Max Delay (s)</label>
-                    <input type="number" id="botMaxDelay" value="15" min="1" max="300" style="width: 100%; margin-top: 4px; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); outline: none; transition: 0.2s;" />
-                </div>
-            </div>
-            
-            <!-- Scheduling -->
-            <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 16px; background: rgba(255,255,255,0.05); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);">
-                <div style="flex: 1;">
-                    <label style="font-size: 11px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Schedule Start (Local Time)</label>
-                    <input type="datetime-local" id="botScheduleTime" style="width: 100%; margin-top: 4px; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); outline: none; transition: 0.2s; color-scheme: dark;" />
-                </div>
-                <button id="botScheduleBtn" style="padding: 10px 16px; cursor: pointer; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; border: none; border-radius: 8px; font-weight: 700; font-size: 13px; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3); align-self: flex-end; transition: transform 0.1s, filter 0.2s;">⏳ Set</button>
-            </div>
-            
-            <div style="display: flex; gap: 12px; margin-bottom: 16px;">
-                <button id="botStartBtn" style="flex: 1; padding: 10px; cursor: pointer; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 8px; font-weight: 700; font-size: 15px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3); transition: transform 0.1s, filter 0.2s;">▶ START</button>
-                <button id="botStopBtn" style="flex: 1; padding: 10px; cursor: pointer; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; border: none; border-radius: 8px; font-weight: 700; font-size: 15px; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3); transition: transform 0.1s, filter 0.2s;">⏹ STOP</button>
-            </div>
+        if (window.self !== window.top) return;
+        if (document.getElementById('universal-bot-hud')) return;
 
-            <!-- Shipping Profile Settings -->
-            <details style="margin-bottom: 12px; background: rgba(255,255,255,0.03); padding: 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);">
-                <summary style="cursor: pointer; font-weight: 600; color: #fbbf24; outline: none; user-select: none;">📦 Shipping Profile</summary>
-                <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 10px;">
-                    <input type="text" id="p_fn" placeholder="First Name" style="padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
-                    <input type="text" id="p_ln" placeholder="Last Name" style="padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
-                    <input type="text" id="p_addr" placeholder="Street Address" style="padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
-                    <input type="text" id="p_apt" placeholder="Apt/Suite (Optional)" style="padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
-                    <input type="text" id="p_zip" placeholder="Zip Code" style="padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
-                    <input type="text" id="p_phone" placeholder="Phone Number" style="padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
-                    <input type="email" id="p_email" placeholder="Email" style="padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
-                </div>
-            </details>
-
-            <!-- Payment Details Settings -->
-            <details open style="margin-bottom: 16px; background: rgba(255,255,255,0.03); padding: 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);">
-                <summary style="cursor: pointer; font-weight: 600; color: #38bdf8; outline: none; user-select: none;">💳 Payment Details</summary>
-                <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
-                    <div>
-                        <div style="font-size: 11px; font-weight: 600; color: #94a3b8; margin-bottom: 4px;">CARD NUMBER:</div>
-                        <input type="text" id="p_card_num" placeholder="16-digit Card Number" style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
+        hud = new UniversalHUD({
+            storeName: 'Pokémon Center',
+            storeBadgeClass: 'ub-badge-pokemon',
+            isRunning: isBotRunning,
+            config: {
+                target_qty: localStorage.getItem('pc_bot_target_qty') || '1',
+                min_delay: localStorage.getItem('pc_bot_min_delay') || '5',
+                max_delay: localStorage.getItem('pc_bot_max_delay') || '15'
+            },
+            showDelays: true,
+            delayInSeconds: true,
+            extraStoreHtml: `
+                <div id="botPageType" style="margin-bottom: 8px; font-size: 13px; font-weight: bold; color: #fff;">🌐 Initializing...</div>
+                
+                <!-- Scheduling -->
+                <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 10px; background: rgba(255,255,255,0.03); padding: 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+                    <div style="flex: 1;">
+                        <label style="font-size: 10px; font-weight: 600; color: #94a3b8; text-transform: uppercase;">Schedule Start</label>
+                        <input type="datetime-local" id="botScheduleTime" style="width: 100%; margin-top: 4px; padding: 6px 8px; background: rgba(0,0,0,0.3); color: #fff; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); outline: none; font-size: 11px; color-scheme: dark;" />
                     </div>
-                    <div style="display: flex; gap: 8px;">
-                        <div style="flex: 1;">
-                            <div style="font-size: 11px; font-weight: 600; color: #94a3b8; margin-bottom: 4px;">MONTH:</div>
-                            <input type="text" id="p_exp_month" placeholder="MM (08)" maxlength="2" style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
-                        </div>
-                        <div style="flex: 1;">
-                            <div style="font-size: 11px; font-weight: 600; color: #94a3b8; margin-bottom: 4px;">YEAR:</div>
-                            <input type="text" id="p_exp_year" placeholder="YYYY (2026)" maxlength="4" style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
-                        </div>
-                        <div style="flex: 1;">
-                            <div style="font-size: 11px; font-weight: 600; color: #94a3b8; margin-bottom: 4px;">CVV2:</div>
-                            <input type="text" id="p_cvv" placeholder="CVV2" maxlength="4" style="width: 100%; box-sizing: border-box; padding: 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; outline: none;" />
-                        </div>
-                    </div>
-                    <button id="botSaveSettingsBtn" style="margin-top: 10px; padding: 10px; background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 700; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); transition: transform 0.1s, filter 0.2s;">💾 Save Profile & Card</button>
+                    <button id="botScheduleBtn" style="padding: 8px 12px; cursor: pointer; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; border: none; border-radius: 6px; font-weight: 700; font-size: 11px; align-self: flex-end;">⏳ Set</button>
                 </div>
-            </details>
-            
-            <!-- Terminal Log -->
-            <div style="font-size: 11px; font-weight: 700; color: #64748b; margin-bottom: 6px; letter-spacing: 1px; text-transform: uppercase;">System Activity</div>
-            <div id="botConsole" style="background: rgba(0,0,0,0.5); border-radius: 8px; padding: 12px; height: 180px; overflow-y: auto; font-family: 'Fira Code', 'Consolas', monospace; font-size: 12px; border: 1px solid rgba(255,255,255,0.05); box-shadow: inset 0 2px 10px rgba(0,0,0,0.5);">
-            </div>
-        `;
 
-        consoleContainer = document.getElementById('botConsole');
+                <!-- Shipping Profile Settings -->
+                <details style="margin-bottom: 8px; background: rgba(255,255,255,0.02); padding: 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.04);">
+                    <summary style="cursor: pointer; font-weight: 600; color: #fbbf24; outline: none; user-select: none; font-size: 11px;">📦 Shipping Profile</summary>
+                    <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 8px;">
+                        <input type="text" id="p_fn" placeholder="First Name" style="padding: 6px 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; font-size: 11px; outline: none;" />
+                        <input type="text" id="p_ln" placeholder="Last Name" style="padding: 6px 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; font-size: 11px; outline: none;" />
+                        <input type="text" id="p_addr" placeholder="Street Address" style="padding: 6px 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; font-size: 11px; outline: none;" />
+                        <input type="text" id="p_apt" placeholder="Apt/Suite (Optional)" style="padding: 6px 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; font-size: 11px; outline: none;" />
+                        <input type="text" id="p_zip" placeholder="Zip Code" style="padding: 6px 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; font-size: 11px; outline: none;" />
+                        <input type="text" id="p_phone" placeholder="Phone Number" style="padding: 6px 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; font-size: 11px; outline: none;" />
+                        <input type="email" id="p_email" placeholder="Email" style="padding: 6px 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; font-size: 11px; outline: none;" />
+                    </div>
+                </details>
+
+                <!-- Payment Details Settings -->
+                <details style="margin-bottom: 8px; background: rgba(255,255,255,0.02); padding: 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.04);">
+                    <summary style="cursor: pointer; font-weight: 600; color: #38bdf8; outline: none; user-select: none; font-size: 11px;">💳 Payment Details</summary>
+                    <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px;">
+                        <div>
+                            <div style="font-size: 10px; font-weight: 600; color: #94a3b8; margin-bottom: 3px;">CARD NUMBER:</div>
+                            <input type="text" id="p_card_num" placeholder="16-digit Card Number" style="width: 100%; box-sizing: border-box; padding: 6px 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; font-size: 11px; outline: none;" />
+                        </div>
+                        <div style="display: flex; gap: 6px;">
+                            <div style="flex: 1;">
+                                <div style="font-size: 10px; font-weight: 600; color: #94a3b8; margin-bottom: 3px;">MONTH:</div>
+                                <input type="text" id="p_exp_month" placeholder="MM" maxlength="2" style="width: 100%; box-sizing: border-box; padding: 6px 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; font-size: 11px; outline: none;" />
+                            </div>
+                            <div style="flex: 1;">
+                                <div style="font-size: 10px; font-weight: 600; color: #94a3b8; margin-bottom: 3px;">YEAR:</div>
+                                <input type="text" id="p_exp_year" placeholder="YYYY" maxlength="4" style="width: 100%; box-sizing: border-box; padding: 6px 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; font-size: 11px; outline: none;" />
+                            </div>
+                            <div style="flex: 1;">
+                                <div style="font-size: 10px; font-weight: 600; color: #94a3b8; margin-bottom: 3px;">CVV2:</div>
+                                <input type="text" id="p_cvv" placeholder="CVV2" maxlength="4" style="width: 100%; box-sizing: border-box; padding: 6px 8px; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; font-size: 11px; outline: none;" />
+                            </div>
+                        </div>
+                        <button id="botSaveSettingsBtn" style="margin-top: 6px; padding: 8px; background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 700; font-size: 11px;">💾 Save Profile & Card</button>
+                    </div>
+                </details>
+            `,
+            onStart: () => {
+                if (!isBotRunning) {
+                    isBotRunning = true;
+                    localStorage.setItem('pc_bot_running', 'true');
+                    logToConsole('Bot started manually.', 'success');
+                    updateButtons();
+                }
+            },
+            onStop: () => {
+                if (isBotRunning) {
+                    isBotRunning = false;
+                    localStorage.setItem('pc_bot_running', 'false');
+                    botActionInProgress = false; 
+                    logToConsole('Bot stopped manually.', 'error');
+                    updateButtons();
+                }
+            },
+            onConfigChange: (key, val) => {
+                if (key === 'target_qty') localStorage.setItem('pc_bot_target_qty', val);
+                if (key === 'min_delay') localStorage.setItem('pc_bot_min_delay', val);
+                if (key === 'max_delay') localStorage.setItem('pc_bot_max_delay', val);
+            }
+        });
+
+        uiContainer = hud.hudEl;
+        consoleContainer = hud.consoleEl;
+        hud.interceptConsole('Pokémon Center');
 
         // Attach event listeners
         const startBtn = document.getElementById('botStartBtn');
@@ -936,6 +1629,9 @@ function runPokemonBot() {
         if (stopBtn) {
             stopBtn.style.opacity = !isBotRunning ? '0.4' : '1';
             stopBtn.disabled = !isBotRunning;
+        }
+        if (hud) {
+            hud.setRunning(isBotRunning);
         }
     }
 
@@ -1689,14 +2385,77 @@ function runTargetBot() {
     
 
     // Global Config State
+    let hud = null;
     let botConfig = {
-        bot_running: false,
+        bot_running: true,
         target_qty: 1,
         max_price: 0,
         min_delay: 3000,
         max_delay: 5000,
-        cvv: '123'
+        cvv: '123',
+        matched_product: null
     };
+
+    function initTargetUI() {
+        if (window.self !== window.top) return;
+        if (document.getElementById('universal-bot-hud')) return;
+
+        hud = new UniversalHUD({
+            storeName: 'Target',
+            storeBadgeClass: 'ub-badge-target',
+            isRunning: botConfig.bot_running,
+            config: {
+                target_qty: botConfig.target_qty,
+                max_price: botConfig.max_price,
+                cvv: botConfig.cvv,
+                min_delay: botConfig.min_delay,
+                max_delay: botConfig.max_delay
+            },
+            showDelays: true,
+            delayInSeconds: false,
+            extraStoreHtml: `
+                <div style="display:flex; align-items:center; justify-content:space-between; background:rgba(255,255,255,0.03); padding:8px 10px; border-radius:8px; border:1px solid rgba(255,255,255,0.06); font-size:11px;">
+                    <span style="color:#94a3b8; font-weight:600;">WebSocket Restock Feed:</span>
+                    <span id="targetWsBadge" style="color:#f87171; font-weight:700;">Connecting...</span>
+                </div>
+            `,
+            onStart: () => {
+                botConfig.bot_running = true;
+                localStorage.setItem('target_bot_running', 'true');
+                if (hud) hud.log('Target Bot started manually.', 'success');
+                runBot();
+            },
+            onStop: () => {
+                botConfig.bot_running = false;
+                localStorage.setItem('target_bot_running', 'false');
+                if (hud) hud.log('Target Bot stopped manually.', 'error');
+            },
+            onConfigChange: (key, val) => {
+                if (key === 'target_qty') {
+                    botConfig.target_qty = parseInt(val, 10) || 1;
+                    localStorage.setItem('target_bot_qty', botConfig.target_qty);
+                }
+                if (key === 'max_price') {
+                    botConfig.max_price = parseFloat(val) || 0;
+                    localStorage.setItem('target_bot_max_price', botConfig.max_price);
+                }
+                if (key === 'cvv') {
+                    botConfig.cvv = String(val).trim();
+                    localStorage.setItem('target_bot_cvv', botConfig.cvv);
+                }
+                if (key === 'min_delay') {
+                    botConfig.min_delay = parseInt(val, 10) || 3000;
+                    localStorage.setItem('target_bot_min_delay', botConfig.min_delay);
+                }
+                if (key === 'max_delay') {
+                    botConfig.max_delay = parseInt(val, 10) || 5000;
+                    localStorage.setItem('target_bot_max_delay', botConfig.max_delay);
+                }
+            }
+        });
+
+        hud.interceptConsole('Target');
+    }
 
     function gmFetch(url, options = {}) {
         return new Promise((resolve, reject) => {
@@ -1750,16 +2509,28 @@ function runTargetBot() {
 
     async function fetchConfig() {
         try {
-            let u = encodeURIComponent(window.location.href.split('?')[0]);
-            let res = await gmFetch('http://localhost:8000/api/pok/config?url=' + u);
+            let u = encodeURIComponent(window.location.href);
+            let res = await gmFetch('http://localhost:8000/api/target/config?url=' + u);
             if (res.ok) {
                 let data = await res.json();
                 botConfig.bot_running = !!data.bot_running;
-                if (data.target_qty) botConfig.target_qty = parseInt(data.target_qty) || 1;
-                if (data.max_price) botConfig.max_price = parseFloat(data.max_price) || 0;
-                if (data.min_delay) botConfig.min_delay = parseInt(data.min_delay) || 3000;
-                if (data.max_delay) botConfig.max_delay = parseInt(data.max_delay) || 5000;
-                if (data.payment && data.payment.cvv) botConfig.cvv = data.payment.cvv;
+                if (hud) hud.setRunning(botConfig.bot_running);
+                
+                botConfig.matched_product = data.matched_product;
+                
+                if (data.matched_product) {
+                    botConfig.target_qty = data.matched_product.quantity || data.settings.default_qty || 1;
+                    botConfig.max_price = data.matched_product.max_price || data.settings.default_max_price || 0.0;
+                } else {
+                    botConfig.target_qty = data.settings.default_qty || 1;
+                    botConfig.max_price = data.settings.default_max_price || 0.0;
+                }
+                
+                botConfig.min_delay = data.settings.min_delay || 3000;
+                botConfig.max_delay = data.settings.max_delay || 5000;
+                botConfig.cvv = data.settings.cvv || '123';
+                
+                if (hud) hud.syncConfig(botConfig);
             }
         } catch (e) {}
     }
@@ -1772,8 +2543,6 @@ function runTargetBot() {
     function getElementByXpath(path) {
         return document.evaluate(path, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
     }
-
-
 
     function getWaitTimeMs() {
         const minDelay = parseInt(botConfig.min_delay, 10);
@@ -1793,6 +2562,11 @@ function runTargetBot() {
         
         ws.onopen = () => {
             console.log("Target Bot: Connected to WebSocket Server!");
+            const badge = document.getElementById('targetWsBadge');
+            if (badge) {
+                badge.innerText = 'Connected';
+                badge.style.color = '#34d399';
+            }
         };
         
         ws.onmessage = (event) => {
@@ -1801,11 +2575,6 @@ function runTargetBot() {
             try {
                 const data = JSON.parse(event.data);
                 if (data.action === "RESTOCK" && data.atc_url) {
-                    const targetTcin = "".trim();
-                    if (targetTcin && !data.atc_url.includes(targetTcin)) {
-                        console.log(`Target Bot: Ignored restock for different TCIN. (Signal for: ${data.atc_url})`);
-                        return;
-                    }
                     console.log(`Target Bot: RESTOCK DETECTED! Redirecting to: ${data.atc_url}`);
                     window.location.href = data.atc_url;
                 }
@@ -1816,6 +2585,11 @@ function runTargetBot() {
         
         ws.onclose = () => {
             console.log("Target Bot: WebSocket disconnected. Reconnecting in 3s...");
+            const badge = document.getElementById('targetWsBadge');
+            if (badge) {
+                badge.innerText = 'Reconnecting...';
+                badge.style.color = '#f59e0b';
+            }
             ws = null;
             setTimeout(connectWebSocket, 3000);
         };
@@ -1900,6 +2674,11 @@ function runTargetBot() {
     function handleProductPage() {
         console.log("Target Bot: Handling product page...");
 
+        if (!botConfig.matched_product) {
+            console.log("Target Bot: This product is not monitored on the dashboard. Ignoring.");
+            return;
+        }
+
         if (isOutOfStock()) {
             console.log("Target Bot: Out of stock detected. Waiting for WebSocket signal...");
             return;
@@ -1914,33 +2693,100 @@ function runTargetBot() {
         
         // 1. Check and set Quantity if present
         const targetQty = botConfig.target_qty;
-        const qtyBtn = document.querySelector('button[id^="select-"]') || getElementByXpath("//button[contains(., 'Qty')]");
+        
+        let qtyBtn = document.querySelector('.ReactModal__Content button[id^="select-"]') || 
+                     document.querySelector('.ReactModal__Content [data-test="quantity-picker"] button');
+        if (!qtyBtn) {
+            qtyBtn = document.querySelector('button[id^="select-"]') || getElementByXpath("//button[contains(., 'Qty')]");
+        }
         
         if (qtyBtn) {
-            const qtyTextDiv = qtyBtn.querySelector('div');
-            const currentQty = qtyTextDiv ? qtyTextDiv.innerText.trim() : "";
-            if (currentQty && currentQty !== targetQty) {
-                console.log(`Target Bot: Current quantity is ${currentQty}, target is ${targetQty}. Updating...`);
-                const optionLink = document.querySelector(`ul.Options_styles_options__UapY8 a[aria-label="${targetQty}"]`) || 
-                                   document.querySelector(`ul a[aria-label="${targetQty}"]`);
-                if (optionLink) {
-                    optionLink.click();
-                    console.log(`Target Bot: Clicked quantity option ${targetQty}`);
+            const qtyTextDiv = qtyBtn.querySelector('div') || qtyBtn;
+            const currentQty = qtyTextDiv ? qtyTextDiv.innerText.replace(/[^0-9]/g, '').trim() : "";
+            const targetQtyStr = targetQty.toString();
+            
+            if (currentQty && currentQty !== targetQtyStr) {
+                console.log(`Target Bot: Current quantity is ${currentQty}, target is ${targetQtyStr}. Updating...`);
+                
+                const isExpanded = qtyBtn.getAttribute('aria-expanded') === 'true';
+                
+                if (isExpanded) {
+                    let optionLink = null;
+                    const listboxes = document.querySelectorAll('[role="listbox"], ul[id*="select-"], div[id*="select-"]');
+                    for (const lb of listboxes) {
+                        if (isElementVisible(lb)) {
+                            const opts = Array.from(lb.querySelectorAll('[role="option"], li, a, button, [data-value]'));
+                            optionLink = opts.find(el => {
+                                const val = el.getAttribute('data-value') || el.getAttribute('value') || el.innerText.trim();
+                                return val === targetQtyStr;
+                            });
+                            if (optionLink) break;
+                        }
+                    }
+                    
+                    if (!optionLink) {
+                        const allOpts = Array.from(document.querySelectorAll('[role="option"], ul li, div[data-value], ul.Options_styles_options__hQoz_ a'));
+                        optionLink = allOpts.find(el => {
+                            if (!isElementVisible(el)) return false;
+                            const text = el.innerText.trim();
+                            const aria = el.getAttribute('aria-label');
+                            return text === targetQtyStr || (aria && aria.startsWith(targetQtyStr));
+                        });
+                    }
+
+                    if (optionLink) {
+                        // React dropdowns often need mousedown/mouseup instead of just click()
+                        try {
+                            optionLink.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+                            optionLink.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+                        } catch (e) {
+                            console.error("Target Bot: MouseEvent dispatch failed", e);
+                        }
+                        optionLink.click();
+                        console.log(`Target Bot: Clicked quantity option ${targetQtyStr}`);
+                        
+                        // Force update innerText check bypass
+                        setTimeout(handleProductPage, 1000);
+                        return;
+                    } else {
+                        console.log(`Target Bot: Could not find option ${targetQtyStr} in the open dropdown.`);
+                    }
                 } else {
                     qtyBtn.click();
-                    console.log("Target Bot: Clicked quantity selector dropdown");
+                    console.log("Target Bot: Clicked quantity selector dropdown to open it");
                 }
+                
                 // Delay a bit and re-run handleProductPage
                 setTimeout(handleProductPage, 500);
                 return;
             }
+            
+            // If current quantity matches target AND the button says "in cart", we are done adding!
+            if (currentQty === targetQtyStr && qtyBtn.innerText.toLowerCase().includes('in cart')) {
+                console.log("Target Bot: Item is already in cart with desired quantity. Proceeding to checkout...");
+                window.location.href = "https://www.target.com/checkout";
+                return;
+            }
+        }
+        
+        // Also check if the View Cart button is visible
+        const viewCartBtn = getElementByXpath("//a[contains(text(),'View cart')]") || 
+                            getElementByXpath("//button[contains(text(),'View cart')]");
+        if (viewCartBtn && isElementVisible(viewCartBtn)) {
+            console.log("Target Bot: View cart drawer is open. Proceeding to checkout...");
+            window.location.href = "https://www.target.com/checkout";
+            return;
         }
         
         // Look for Add to cart or Preorder
-        const addToCartBtn = document.querySelector('button[data-test="shippingButton"]') ||
-                             document.querySelector('button[id^="addToCartButtonOrTextIdFor"]') ||
-                             getElementByXpath("//button[contains(text(),'Add to cart')]") ||
-                             getElementByXpath("//button[text()='Preorder']");
+        let addToCartBtn = document.querySelector('.ReactModal__Content button[data-test="shippingButton"]') ||
+                           getElementByXpath("//div[contains(@class, 'ReactModal__Content')]//button[contains(text(),'Add to cart')]");
+        if (!addToCartBtn) {
+            addToCartBtn = document.querySelector('button[data-test="shippingButton"]') ||
+                           document.querySelector('button[id^="addToCartButtonOrTextIdFor"]') ||
+                           getElementByXpath("//button[contains(text(),'Add to cart')]") ||
+                           getElementByXpath("//button[text()='Preorder']");
+        }
         
         if (addToCartBtn && isElementVisible(addToCartBtn) && !isDisabled(addToCartBtn)) {
             console.log("Target Bot: Found Add to Cart/Preorder button! Clicking...");
@@ -2100,15 +2946,29 @@ function runTargetBot() {
     }
 
     // Wait for the page to load, then initialize UI and logic
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            initTargetUI();
+        });
+    } else {
+        initTargetUI();
+    }
+
     window.addEventListener('load', () => {
+        initTargetUI();
         setTimeout(async () => {
             await fetchConfig();
-            fetchConfig();
             if (botConfig.bot_running) {
                 runBot();
             }
         }, 1000); // slight delay to let Target's react elements render
     });
+
+    setInterval(() => {
+        if (botConfig.bot_running) {
+            runBot();
+        }
+    }, 2500);
 
 
 }
@@ -2118,11 +2978,12 @@ function runWalmartBot() {
     
 
     // Global Config State
+    let hud = null;
     let botConfig = {
-        bot_running: false,
-        target_qty: 1,
-        max_price: 50.00,
-        cvv: '123'
+        bot_running: localStorage.getItem('wpd-autobuy') === 'true',
+        target_qty: parseInt(localStorage.getItem('wpd-quantity') || '1', 10),
+        max_price: parseFloat(localStorage.getItem('wpd-max-price') || '50.00'),
+        cvv: localStorage.getItem('wpd-cvv') || '123'
     };
 
     function gmFetch(url, options = {}) {
@@ -2180,10 +3041,14 @@ function runWalmartBot() {
             let res = await gmFetch('http://localhost:8000/api/pok/config?url=' + u);
             if (res.ok) {
                 let data = await res.json();
-                botConfig.bot_running = !!data.bot_running;
+                if (typeof data.bot_running !== 'undefined') {
+                    botConfig.bot_running = !!data.bot_running;
+                    if (hud) hud.setRunning(botConfig.bot_running);
+                }
                 if (data.target_qty) botConfig.target_qty = parseInt(data.target_qty) || 1;
                 if (data.max_price) botConfig.max_price = parseFloat(data.max_price) || 0;
                 if (data.payment && data.payment.cvv) botConfig.cvv = data.payment.cvv;
+                if (hud) hud.syncConfig(botConfig);
             }
         } catch (e) {}
     }
@@ -2370,177 +3235,85 @@ function runWalmartBot() {
     }
 
     // ─── UI Injection ─────────────────────────────────────────────────────────
-    // We inject the UI after DOMContentLoaded so elements are ready.
     function initUI() {
-        if (document.getElementById('walmart-page-detector-ui')) return;
+        if (window.self !== window.top) return;
+        if (document.getElementById('universal-bot-hud')) return;
 
-        const fontLink = document.createElement('link');
-        fontLink.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap';
-        fontLink.rel = 'stylesheet';
-        document.head.appendChild(fontLink);
-
-        const style = document.createElement('style');
-        style.innerHTML = `
-            #walmart-page-detector-ui {
-                position: fixed;
-                bottom: 30px;
-                right: 30px;
-                background: rgba(15, 23, 42, 0.92);
-                backdrop-filter: blur(16px);
-                -webkit-backdrop-filter: blur(16px);
-                border: 1px solid rgba(255,255,255,0.1);
-                border-radius: 16px;
-                padding: 20px 24px;
-                color: #f8fafc;
-                font-family: 'Inter', system-ui, -apple-system, sans-serif;
-                z-index: 9999999;
-                box-shadow: 0 20px 25px -5px rgba(0,0,0,0.3);
-                transform: translateY(30px) scale(0.95);
-                opacity: 0;
-                transition: all 0.5s cubic-bezier(0.175,0.885,0.32,1.275);
-                display: flex;
-                flex-direction: column;
-                gap: 10px;
-                pointer-events: auto;
-                width: 270px;
-            }
-            #walmart-page-detector-ui.wpd-visible { transform: translateY(0) scale(1); opacity: 1; }
-            .wpd-title {
-                font-weight: 700;
-                font-size: 10px;
-                text-transform: uppercase;
-                letter-spacing: 0.12em;
-                color: #64748b;
-            }
-            .wpd-row {
-                display: flex;
-                align-items: center;
-                gap: 10px;
-                font-weight: 600;
-                font-size: 17px;
-            }
-            .wpd-indicator {
-                width: 11px; height: 11px;
-                border-radius: 50%;
-                flex-shrink: 0;
-                animation: wpdPulse 2s infinite;
-            }
-            .wpd-led-home    { background:#8b5cf6; box-shadow:0 0 10px #8b5cf6; }
-            .wpd-led-search  { background:#ec4899; box-shadow:0 0 10px #ec4899; }
-            .wpd-led-product { background:#10b981; box-shadow:0 0 10px #10b981; }
-            .wpd-led-checkout{ background:#f59e0b; box-shadow:0 0 10px #f59e0b; }
-            .wpd-led-default { background:#3b82f6; box-shadow:0 0 10px #3b82f6; }
-            .wpd-stock-row {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                font-size: 12px;
-                padding: 6px 10px;
-                border-radius: 8px;
-                background: rgba(255,255,255,0.06);
-            }
-            .wpd-stock-dot {
-                width: 8px; height: 8px;
-                border-radius: 50%;
-                flex-shrink: 0;
-            }
-            .wpd-stock-dot.in  { background: #10b981; box-shadow: 0 0 6px #10b981; }
-            .wpd-stock-dot.out { background: #ef4444; box-shadow: 0 0 6px #ef4444; }
-            .wpd-stock-dot.unk { background: #64748b; }
-            .wpd-badge {
-                background: rgba(255,255,255,0.1);
-                padding: 2px 8px;
-                border-radius: 20px;
-                font-size: 11px;
-                font-family: monospace;
-                color: #e2e8f0;
-            }
-            .wpd-divider { border: none; border-top: 1px solid rgba(255,255,255,0.08); margin: 2px 0; }
-            .wpd-settings { display: none; flex-direction: column; gap: 10px; }
-            .wpd-input-row {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                font-size: 12px;
-                color: #94a3b8;
-            }
-            .wpd-input-row input {
-                background: rgba(0,0,0,0.25);
-                border: 1px solid rgba(255,255,255,0.1);
-                color: white;
-                border-radius: 6px;
-                padding: 5px 9px;
-                width: 85px;
-                font-family: 'Inter', sans-serif;
-                font-size: 13px;
-                outline: none;
-                transition: border-color 0.2s;
-            }
-            .wpd-input-row input:focus { border-color: #3b82f6; }
-            .wpd-btn {
-                padding: 9px;
-                border-radius: 8px;
-                border: none;
-                font-weight: 600;
-                font-size: 13px;
-                cursor: pointer;
-                transition: all 0.2s;
-                font-family: 'Inter', sans-serif;
-                width: 100%;
-            }
-            .wpd-btn-off { background: rgba(255,255,255,0.08); color:#94a3b8; }
-            .wpd-btn-off:hover { background: rgba(255,255,255,0.13); }
-            .wpd-btn-on  { background:#10b981; color:white; box-shadow:0 4px 14px rgba(16,185,129,0.35); }
-            .wpd-btn-on:hover { background:#059669; }
-            .wpd-source-tag {
-                font-size: 10px;
-                color: #475569;
-                text-align: right;
-                font-family: monospace;
-            }
-            @keyframes wpdPulse {
-                0%   { opacity:0.7; transform:scale(0.9); }
-                50%  { opacity:1;   transform:scale(1.15); }
-                100% { opacity:0.7; transform:scale(0.9); }
-            }
-        `;
-        document.head.appendChild(style);
-
-        const ui = document.createElement('div');
-        ui.id = 'walmart-page-detector-ui';
-        ui.innerHTML = `
-            <div class="wpd-title">Walmart Bot v2.0</div>
-            <div class="wpd-row">
-                <div class="wpd-indicator wpd-led-default" id="wpd-led"></div>
-                <span id="wpd-text">Detecting...</span>
-            </div>
-            <div id="wpd-stock-row" class="wpd-stock-row" style="display:none;">
-                <div class="wpd-stock-dot unk" id="wpd-stock-dot"></div>
-                <span id="wpd-stock-text" style="flex:1;color:#cbd5e1;">Checking stock...</span>
-                <span class="wpd-badge" id="wpd-price-badge" style="display:none;"></span>
-            </div>
-            <div class="wpd-source-tag" id="wpd-source"></div>
-            <hr class="wpd-divider" id="wpd-settings-divider" style="display:none;">
-            <div class="wpd-settings" id="wpd-settings">
-                <div class="wpd-input-row">
-                    <label>Max Price ($)</label>
-                    <input type="number" id="wpd-max-price" step="0.01" min="0">
+        hud = new UniversalHUD({
+            storeName: 'Walmart',
+            storeBadgeClass: 'ub-badge-walmart',
+            isRunning: botConfig.bot_running,
+            config: {
+                target_qty: botConfig.target_qty,
+                max_price: botConfig.max_price,
+                cvv: botConfig.cvv
+            },
+            showDelays: false,
+            extraStoreHtml: `
+                <div id="wpd-page-row" style="display:flex; align-items:center; justify-content:space-between; background:rgba(255,255,255,0.03); padding:8px 10px; border-radius:8px; border:1px solid rgba(255,255,255,0.06);">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <div id="wpd-led" class="wpd-indicator wpd-led-default" style="width:10px; height:10px; border-radius:50%; background:#3b82f6; box-shadow:0 0 10px #3b82f6;"></div>
+                        <span id="wpd-text" style="font-weight:600; font-size:12px;">Detecting...</span>
+                    </div>
+                    <span id="wpd-price-badge" class="wpd-badge" style="display:none; background:rgba(255,255,255,0.1); padding:2px 8px; border-radius:12px; font-family:monospace; font-size:11px;"></span>
                 </div>
-                <div class="wpd-input-row">
-                    <label>Quantity</label>
-                    <input type="number" id="wpd-quantity" min="1" max="99">
+                <div id="wpd-stock-row" style="display:none; align-items:center; justify-content:space-between; font-size:11px; background:rgba(255,255,255,0.02); padding:6px 10px; border-radius:6px; margin-top:4px;">
+                    <div style="display:flex; align-items:center; gap:6px;">
+                        <div id="wpd-stock-dot" class="wpd-stock-dot unk" style="width:8px; height:8px; border-radius:50%; background:#64748b;"></div>
+                        <span id="wpd-stock-text" style="color:#cbd5e1;">Checking stock...</span>
+                    </div>
+                    <span id="wpd-source" style="font-size:10px; color:#64748b; font-family:monospace;"></span>
                 </div>
-                <div class="wpd-input-row">
-                    <label>CVV</label>
-                    <input type="password" id="wpd-cvv" maxlength="4" placeholder="3 digits">
-                </div>
-                <button id="wpd-auto-buy-btn" class="wpd-btn wpd-btn-off">Auto Buy: OFF</button>
-            </div>
-        `;
-        document.body.appendChild(ui);
-        setTimeout(() => ui.classList.add('wpd-visible'), 100);
+                <!-- Hidden compatibility elements for Walmart DOM queries -->
+                <div id="wpd-settings" style="display:none;"></div>
+                <div id="wpd-settings-divider" style="display:none;"></div>
+                <input type="hidden" id="wpd-max-price" value="${botConfig.max_price}" />
+                <input type="hidden" id="wpd-quantity" value="${botConfig.target_qty}" />
+                <input type="hidden" id="wpd-cvv" value="${botConfig.cvv}" />
+                <button id="wpd-auto-buy-btn" style="display:none;"></button>
+            `,
+            onStart: () => {
+                botConfig.bot_running = true;
+                localStorage.setItem('wpd-autobuy', 'true');
+                if (hud) hud.log('Walmart Auto-Buy started.', 'success');
+                checkPage();
+            },
+            onStop: () => {
+                botConfig.bot_running = false;
+                localStorage.setItem('wpd-autobuy', 'false');
+                if (hud) hud.log('Walmart Auto-Buy stopped.', 'error');
+            },
+            onConfigChange: (key, val) => {
+                if (key === 'target_qty') {
+                    botConfig.target_qty = parseInt(val, 10) || 1;
+                    localStorage.setItem('wpd-quantity', botConfig.target_qty);
+                    const el = document.getElementById('wpd-quantity');
+                    if (el) el.value = botConfig.target_qty;
+                }
+                if (key === 'max_price') {
+                    botConfig.max_price = parseFloat(val) || 0;
+                    localStorage.setItem('wpd-max-price', botConfig.max_price);
+                    const el = document.getElementById('wpd-max-price');
+                    if (el) el.value = botConfig.max_price;
+                }
+                if (key === 'cvv') {
+                    botConfig.cvv = String(val).trim();
+                    localStorage.setItem('wpd-cvv', botConfig.cvv);
+                    const el = document.getElementById('wpd-cvv');
+                    if (el) el.value = botConfig.cvv;
+                    const actualCvvField = document.getElementById('cvv-field');
+                    if (actualCvvField) {
+                        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+                        if (setter) setter.call(actualCvvField, botConfig.cvv);
+                        actualCvvField.dispatchEvent(new Event('input', { bubbles: true }));
+                    }
+                }
+            }
+        });
 
-        // Wire up elements
+        hud.interceptConsole('Walmart');
+
+        // Expose update functions globally
         const led          = document.getElementById('wpd-led');
         const textEl       = document.getElementById('wpd-text');
         const stockRow     = document.getElementById('wpd-stock-row');
@@ -2548,87 +3321,86 @@ function runWalmartBot() {
         const stockText    = document.getElementById('wpd-stock-text');
         const priceBadge   = document.getElementById('wpd-price-badge');
         const sourceTag    = document.getElementById('wpd-source');
-        const settingDiv   = document.getElementById('wpd-settings');
-        const settingDiv2  = document.getElementById('wpd-settings-divider');
-        const maxPriceInput= document.getElementById('wpd-max-price');
-        const qtyInput     = document.getElementById('wpd-quantity');
-        const cvvInput     = document.getElementById('wpd-cvv');
-        const autoBuyBtn   = document.getElementById('wpd-auto-buy-btn');
 
-        // Pre-fill saved values
-        maxPriceInput.value = botConfig.max_price.toFixed(2);
-        qtyInput.value      = botConfig.target_qty;
-        cvvInput.value      = botConfig.cvv;
-
-        // Persist on input
-        maxPriceInput.addEventListener('input', e => {
-            botConfig.max_price = parseFloat(e.target.value) || 0;
-            localStorage.setItem('wpd-max-price', botConfig.max_price);
-        });
-        qtyInput.addEventListener('input', e => {
-            botConfig.target_qty = parseInt(e.target.value) || 1;
-            localStorage.setItem('wpd-quantity', botConfig.target_qty);
-        });
-        cvvInput.addEventListener('input', e => {
-            botConfig.cvv = e.target.value;
-            localStorage.setItem('wpd-cvv', botConfig.cvv);
-            // Live-update checkout page CVV field if visible
-            const actualCvvField = document.getElementById('cvv-field');
-            if (actualCvvField) {
-                const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-                setter.call(actualCvvField, botConfig.cvv);
-                actualCvvField.dispatchEvent(new Event('input', { bubbles: true }));
-            }
-        });
-
-        autoBuyBtn.addEventListener('click', () => {
-            botConfig.bot_running = !botConfig.bot_running;
-            localStorage.setItem('wpd-autobuy', botConfig.bot_running);
-            syncBtnState();
-        });
-
-        function syncBtnState() {
-            autoBuyBtn.innerText = botConfig.bot_running ? 'Auto Buy: ON' : 'Auto Buy: OFF';
-            autoBuyBtn.className = botConfig.bot_running ? 'wpd-btn wpd-btn-on' : 'wpd-btn wpd-btn-off';
-        }
-        syncBtnState();
-
-        // ── Expose update functions globally so other code can call them ──
         window._wpdUpdatePageUI = function(pageType, extra) {
             const configs = {
-                home:     { label:'Home Page',     cls:'wpd-led-home'    },
-                search:   { label:'Search Page',   cls:'wpd-led-search'  },
-                product:  { label:'Product Page',  cls:'wpd-led-product' },
-                checkout: { label:'Checkout Page', cls:'wpd-led-checkout'},
-                other:    { label:'Other Page',    cls:'wpd-led-default' },
+                home:     { label:'Home Page',     color:'#8b5cf6' },
+                search:   { label:'Search Page',   color:'#ec4899' },
+                product:  { label:'Product Page',  color:'#10b981' },
+                checkout: { label:'Checkout Page', color:'#f59e0b' },
+                other:    { label:'Other Page',    color:'#3b82f6' }
             };
             const cfg = configs[pageType] || configs.other;
-            textEl.innerText = cfg.label;
-            led.className = 'wpd-indicator ' + cfg.cls;
+            if (textEl) textEl.innerText = cfg.label;
+            if (led) {
+                led.style.background = cfg.color;
+                led.style.boxShadow = `0 0 10px ${cfg.color}`;
+            }
 
-            const isProduct  = pageType === 'product';
-            const isCheckout = pageType === 'checkout';
-            settingDiv.style.display   = (isProduct || isCheckout) ? 'flex' : 'none';
-            settingDiv2.style.display  = (isProduct || isCheckout) ? 'block' : 'none';
-            stockRow.style.display     = isProduct ? 'flex' : 'none';
+            const isProduct = pageType === 'product';
+            if (stockRow) stockRow.style.display = isProduct ? 'flex' : 'none';
 
             if (extra && extra.query) {
-                stockText.innerText = `Query: ${extra.query}`;
-                stockRow.style.display = 'flex';
-                stockDot.className = 'wpd-stock-dot unk';
+                if (stockText) stockText.innerText = `Query: ${extra.query}`;
+                if (stockRow) stockRow.style.display = 'flex';
+                if (stockDot) {
+                    stockDot.style.background = '#64748b';
+                    stockDot.style.boxShadow = 'none';
+                }
             }
         };
 
         window._wpdUpdateStockUI = function(status, price, source) {
             const isIn = status === 'IN_STOCK';
-            stockDot.className = 'wpd-stock-dot ' + (isIn ? 'in' : status === 'OUT_OF_STOCK' ? 'out' : 'unk');
-            stockText.innerText = isIn ? 'IN STOCK' : status === 'OUT_OF_STOCK' ? 'Out of Stock' : 'Checking...';
-            if (price != null) {
-                priceBadge.style.display = '';
-                priceBadge.innerText = `$${price.toFixed(2)}`;
+            if (stockDot) {
+                stockDot.style.background = isIn ? '#10b981' : (status === 'OUT_OF_STOCK' ? '#ef4444' : '#64748b');
+                stockDot.style.boxShadow = isIn ? '0 0 6px #10b981' : (status === 'OUT_OF_STOCK' ? '0 0 6px #ef4444' : 'none');
             }
-            sourceTag.innerText = source ? `via ${source}` : '';
+            if (stockText) {
+                stockText.innerText = isIn ? 'IN STOCK' : (status === 'OUT_OF_STOCK' ? 'Out of Stock' : 'Checking...');
+            }
+            if (priceBadge) {
+                if (price != null) {
+                    priceBadge.style.display = '';
+                    priceBadge.innerText = `$${price.toFixed(2)}`;
+                } else {
+                    priceBadge.style.display = 'none';
+                }
+            }
+            if (sourceTag) {
+                sourceTag.innerText = source ? `via ${source}` : '';
+            }
+
+            if (hud) {
+                hud.log(`Walmart Stock: ${status}${price ? ' ($' + price.toFixed(2) + ')' : ''}${source ? ' [' + source + ']' : ''}`, isIn ? 'success' : 'info');
+            }
         };
+    }
+
+    // ─── Main Execution ──────────────────────────────────────────────────────
+    async function runWalmartBot() {
+        console.log("Walmart Bot: Starting setup...");
+        
+        // Fetch configs first
+        await fetchConfig();
+
+        // Initialize UI after a delay for hydration safety
+        setTimeout(() => {
+            initUI();
+        }, 1500);
+        
+        // Try reading next_data instantly
+        readNextData();
+
+        // Start DOM observer for buttons appearing
+        installDomObserver();
+        
+        // As a fallback, poll stock in the background using the item ID
+        const match = window.location.pathname.match(/\/ip\/(?:.*?\/)?(\d+)/);
+        if (match) {
+            const itemId = match[1];
+            startStockPoll(itemId);
+        }
     }
 
     function updateStockUI() {
@@ -2700,11 +3472,20 @@ function runWalmartBot() {
     // ─── Buy Flow ─────────────────────────────────────────────────────────────
     function triggerBuyFlow() {
         autoBuyTriggered = true;
-        const buyBtn = document.querySelector('button[data-testid="buy-now-wrapper"]');
-        if (buyBtn && !buyBtn.disabled) {
-            buyBtn.click();
+        const buyBtn = document.querySelector('[data-testid="buy-now-button"]') || 
+                       document.querySelector('[data-testid="buy-now-wrapper"] button') ||
+                       document.querySelector('[data-testid="buy-now-wrapper"]');
+                       
+        const addBtn = document.querySelector('button[data-testid="add-to-cart-button"]');
+        
+        let targetBtn = (buyBtn && !buyBtn.disabled && !buyBtn.getAttribute('aria-disabled')) ? buyBtn : 
+                        (addBtn && !addBtn.disabled && !addBtn.getAttribute('aria-disabled')) ? addBtn : null;
+                        
+        if (targetBtn) {
+            targetBtn.click();
             waitForPanelAndSetQuantity();
         } else {
+            console.log('[WPD] Buy/Cart buttons not found or disabled. Retrying next stock event.');
             autoBuyTriggered = false; // retry next stock event
         }
     }
